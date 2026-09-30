@@ -47,9 +47,10 @@ def run_mv_matching(
     cfg = cfg or MVMatchConfig()
     images = list_images(image_dir)
     timer = Timer()
+    ffmpeg_cmd: list[str] | None = None
     if encode:
         with timer.stage("encode"):
-            encode_images(images, ivf_path, cfg.encode)
+            ffmpeg_cmd = encode_images(images, ivf_path, cfg.encode)
     with timer.stage("extract"):
         frames = load_frame_motion(ivf_path, n_threads=cfg.decoder_threads)
     if len(frames) != len(images):
@@ -78,6 +79,7 @@ def run_mv_matching(
         "keypoints_per_image": float(kp.mean()),
         "database": db_stats,
         "num_images": len(images),
+        "ffmpeg_command": ffmpeg_cmd,
     }
 
 

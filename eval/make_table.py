@@ -11,8 +11,9 @@ import sys
 from pathlib import Path
 
 METHODS = [
-    ("mv", "AV1 MV (COLMAP verification)"),
-    ("mv_trust", "AV1 MV (MVs trusted, no verification)"),
+    ("mv", "AV1 MV, libaom (COLMAP verification)"),
+    ("mv_trust", "AV1 MV, libaom (MVs trusted, no verification)"),
+    ("mv_svt", "AV1 MV, SVT-AV1 (COLMAP verification)"),
     ("sift_seq", "SIFT sequential (overlap 10)"),
     ("sift_exh", "SIFT exhaustive"),
 ]

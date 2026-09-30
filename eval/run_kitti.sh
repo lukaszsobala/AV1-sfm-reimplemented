@@ -26,11 +26,15 @@ for N in $SETS; do
   done
 
   # --- AV1 motion vectors (eps = 0.1, tau = 1 px, min track length 3) ---
-  # Encoder: libaom, -usage realtime -cpu-used 6 -lag-in-frames 0, CRF 32 (defaults).
+  # Encoder: libaom, -usage realtime -cpu-used 6 -lag-in-frames 0, CRF 32 (defaults),
+  # through the ffmpeg built by scripts/build_ffmpeg.sh when present.
   step "$R/mv.json" uv run av1sfm match "$R/img" "$R/mv.db" --ivf "$R/clip.ivf" --encode \
     --camera-params "$K" --stats "$R/mv.json"
   step "$R/mv_trust.json" uv run av1sfm match "$R/img" "$R/mv_trust.db" --ivf "$R/clip.ivf" \
     --camera-params "$K" --two-view trust --stats "$R/mv_trust.json"
+  # Same pipeline on an SVT-AV1 stream (low-delay RTC, preset 10, CRF 32).
+  step "$R/mv_svt.json" uv run av1sfm match "$R/img" "$R/mv_svt.db" --ivf "$R/clip_svt.ivf" \
+    --encode --encoder svtav1 --camera-params "$K" --stats "$R/mv_svt.json"
 
   # --- COLMAP SIFT baselines (CPU) ---
   step "$R/sift_seq.json" uv run python eval/run_sift.py "$R/img" "$R/sift_seq.db" --matching sequential \
@@ -39,13 +43,13 @@ for N in $SETS; do
     --camera-params "$K" --stats "$R/sift_exh.json"
 
   # --- identical pairwise geometric scoring of raw matches ---
-  for M in mv sift_seq sift_exh; do
+  for M in mv mv_svt sift_seq sift_exh; do
     step "$R/score_$M.json" uv run av1sfm score "$R/$M.db" --out "$R/score_$M.json"
   done
 
   # --- SfM demo (117 frames only) ---
   if [ "$N" = 117 ]; then
-    for M in mv mv_trust sift_seq sift_exh; do
+    for M in mv mv_trust mv_svt sift_seq sift_exh; do
       step "$R/map_$M.json" uv run python eval/run_mapper.py "$R/$M.db" "$R/img" "$R/rec_$M" $MAPPER_ARGS \
         --stats "$R/map_$M.json"
     done
