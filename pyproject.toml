@@ -9,9 +9,7 @@ dependencies = [
     "numpy>=2.3",
     "opencv-python-headless>=4.12",
     "pycolmap>=4.2",
-    "psutil>=7.0",
     "remotezip>=0.12",
-    "tqdm>=4.67",
 ]
 
 [project.scripts]
