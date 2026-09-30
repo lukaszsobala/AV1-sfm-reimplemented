@@ -169,7 +169,33 @@ with sequential (overlap 10) and exhaustive matching, identical pairwise
 scoring of every method's raw matches, and, for the 117-frame set, incremental
 mapping with identical settings.
 
-## Results
+## Viewing and using a reconstruction
+
+The mapper writes a sparse COLMAP model (camera poses and a coloured point
+cloud) to `runs/<clip>/rec_<method>/0`. Open it directly in the COLMAP GUI
+(File → Import model), or export it:
+
+```bash
+uv run python eval/export_model.py runs/kitti117/rec_mv runs/kitti117/img runs/kitti117/export_mv
+```
+
+This writes `points.ply` (MeshLab, CloudCompare, Blender) and `dataset/`, an
+undistorted COLMAP workspace with a PINHOLE camera: `images/`, `sparse/`
+(binary and text) and `sparse/0/`. Both follow-on paths below run without an
+NVIDIA GPU; neither is tested here.
+
+- **Textured mesh with [OpenMVS](https://github.com/cdcseacave/openMVS)** (CPU):
+  `InterfaceCOLMAP -i dataset -o scene.mvs --image-folder dataset/images`, then
+  `DensifyPointCloud`, `ReconstructMesh` and `TextureMesh` (the script prints the
+  exact commands). The OBJ opens in Blender, MeshLab, Godot, Unity or Unreal.
+  COLMAP's own dense stereo needs CUDA.
+- **Gaussian splat with [Brush](https://github.com/ArthurBrussee/brush)**
+  (Vulkan / WebGPU, so Intel Xe2 should work): open `dataset/`. View the
+  result in Brush or SuperSplat.
+
+A building filmed around (Gerrard Hall, Person Hall, with `SFM=1`) makes a
+better model to move around in than KITTI's forward drive.
+
 
 KITTI odometry sequence 00, left colour camera (1241×376), produced by
 `bash eval/run_kitti.sh` on a 4-core x86 cloud VM **without a GPU**, so SIFT
