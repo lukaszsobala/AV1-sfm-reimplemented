@@ -39,10 +39,15 @@ def make_frame(
     if ref_frames is None:
         ref_frames = tuple(max(index - 1 - k, 0) for k in range(7))
     return FrameMotion(
-        index=index, width=width, height=height,
+        index=index,
+        width=width,
+        height=height,
         frame_type=KEY_FRAME if intra else INTER_FRAME,
-        mv=mv, ref=ref, block_map=bm, ref_frame_index=ref_frames,
-    )  # fmt: skip
+        mv=mv,
+        ref=ref,
+        block_map=bm,
+        ref_frame_index=ref_frames,
+    )
 
 
 def set_block(fm: FrameMotion, x0: int, y0: int, w: int, h: int, **fields) -> None:

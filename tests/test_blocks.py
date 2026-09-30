@@ -19,8 +19,14 @@ def test_block_origins_collapse_mixed_partition():
 
 
 def test_block_centers_colmap_convention_and_clipping():
-    c = block_centers(np.array([0, 56]), np.array([0, 32]), np.array([16, 16]),
-                      np.array([16, 16]), width=60, height=40)  # fmt: skip
+    c = block_centers(
+        np.array([0, 56]),
+        np.array([0, 32]),
+        np.array([16, 16]),
+        np.array([16, 16]),
+        width=60,
+        height=40,
+    )
     # first block covers pixels 0..15 -> centre 8.0; second overhangs to x=60, y=40
     np.testing.assert_allclose(c, [[8.0, 8.0], [58.0, 36.0]])
 
@@ -50,8 +56,7 @@ def test_frame_block_motion_filters_zero_intra_and_out_of_frame():
 
 
 def test_reference_slot_resolution_compound_and_prev_only():
-    fm = make_frame(10, 32, 32, block=(16, 16), mv_px=(1.0, 1.0),
-                    ref_frames=(9, 8, 7, 6, 5, 4, 3))  # fmt: skip
+    fm = make_frame(10, 32, 32, block=(16, 16), mv_px=(1.0, 1.0), ref_frames=(9, 8, 7, 6, 5, 4, 3))
     set_block(fm, 0, 0, 16, 16, ref0=4)  # GOLDEN slot -> frame 6
     set_block(fm, 16, 0, 16, 16, ref1=2, mv1_px=(2.0, 2.0))  # compound LAST + LAST2
     bm = frame_block_motion(fm)
@@ -64,8 +69,7 @@ def test_reference_slot_resolution_compound_and_prev_only():
 
 
 def test_motion_lookup_prefers_nearest_reference():
-    fm = make_frame(10, 32, 32, block=(16, 16), mv_px=(1.0, 0.0),
-                    ref_frames=(9, 8, 7, 6, 5, 4, 3))  # fmt: skip
+    fm = make_frame(10, 32, 32, block=(16, 16), mv_px=(1.0, 0.0), ref_frames=(9, 8, 7, 6, 5, 4, 3))
     set_block(fm, 0, 0, 16, 16, ref0=4, ref1=1, mv1_px=(-1.0, 0.0))  # frame 6 vs frame 9
     lk = MotionLookup.from_frame(fm)
     mv, ref = lk.query(np.array([[3.0, 3.0], [20.0, 3.0], [-1.0, 3.0], [31.9, 31.9]]))

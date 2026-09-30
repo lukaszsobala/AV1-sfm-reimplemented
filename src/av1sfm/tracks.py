@@ -148,9 +148,13 @@ def build_tracks(frames: list[FrameMotion], params: TrackParams | None = None) -
             x0, y0 = gx.astype(np.int64) * 4, gy.astype(np.int64) * 4
             inside = (x0 < fm.width) & (y0 < fm.height)
             s_pts = block_centers(
-                x0[inside], y0[inside], _BLOCK_W4[bs][inside] * 4, _BLOCK_H4[bs][inside] * 4,
-                fm.width, fm.height,
-            )  # fmt: skip
+                x0[inside],
+                y0[inside],
+                _BLOCK_W4[bs][inside] * 4,
+                _BLOCK_H4[bs][inside] * 4,
+                fm.width,
+                fm.height,
+            )
         s_ids = np.arange(next_id, next_id + len(s_pts), dtype=np.int64)
         next_id += len(s_pts)
         n_seeds += len(s_pts)

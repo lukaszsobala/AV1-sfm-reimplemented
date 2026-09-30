@@ -54,22 +54,29 @@ def main() -> None:
     a.out_dir.mkdir(parents=True)
     timer = Timer()
     with timer.stage("mapper"):
-        opts = mapper_options(init_max_forward_motion=a.init_max_forward_motion,
-                              init_min_tri_angle=a.init_min_tri_angle)  # fmt: skip
+        opts = mapper_options(
+            init_max_forward_motion=a.init_max_forward_motion,
+            init_min_tri_angle=a.init_min_tri_angle,
+        )
         recs = pycolmap.incremental_mapping(a.database, a.image_dir, a.out_dir, opts)
-    stats: dict = {"timings": timer.asdict(), "num_models": len(recs),
-                   "init_max_forward_motion": a.init_max_forward_motion,
-                   "init_min_tri_angle": a.init_min_tri_angle}  # fmt: skip
+    stats: dict = {
+        "timings": timer.asdict(),
+        "num_models": len(recs),
+        "init_max_forward_motion": a.init_max_forward_motion,
+        "init_min_tri_angle": a.init_min_tri_angle,
+    }
     if recs:
         rec = max(recs.values(), key=lambda r: r.num_reg_images())
-        stats.update({
-            "registered_images": rec.num_reg_images(),
-            "points3D": rec.num_points3D(),
-            "mean_reprojection_error_px": rec.compute_mean_reprojection_error(),
-            "mean_track_length": rec.compute_mean_track_length(),
-            "mean_observations_per_image": rec.compute_mean_observations_per_reg_image(),
-            "camera": rec.cameras[next(iter(rec.cameras))].params.tolist(),
-        })  # fmt: skip
+        stats.update(
+            {
+                "registered_images": rec.num_reg_images(),
+                "points3D": rec.num_points3D(),
+                "mean_reprojection_error_px": rec.compute_mean_reprojection_error(),
+                "mean_track_length": rec.compute_mean_track_length(),
+                "mean_observations_per_image": rec.compute_mean_observations_per_reg_image(),
+                "camera": rec.cameras[next(iter(rec.cameras))].params.tolist(),
+            }
+        )
         t0 = time.perf_counter()
         pycolmap.bundle_adjustment(rec, pycolmap.BundleAdjustmentOptions())
         stats["final_global_ba_s"] = round(time.perf_counter() - t0, 3)

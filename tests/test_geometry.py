@@ -7,7 +7,7 @@ from av1sfm.geometry import (
     sampson_homography,
     score_pair,
     summarize,
-)  # fmt: skip
+)
 
 
 def skew(t):

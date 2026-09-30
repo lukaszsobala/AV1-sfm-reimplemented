@@ -29,8 +29,9 @@ def graph_with_homography(n_pts=200, outliers=20, seed=0):
 
 def test_create_database_single_shared_camera(image_dir, tmp_path):
     names = [f"{i:03d}.png" for i in range(3)]
-    ids = create_database(tmp_path / "db.db", image_dir, names,
-                          CameraSpec("SIMPLE_RADIAL", (200.0, 80.0, 60.0, 0.0)))  # fmt: skip
+    ids = create_database(
+        tmp_path / "db.db", image_dir, names, CameraSpec("SIMPLE_RADIAL", (200.0, 80.0, 60.0, 0.0))
+    )
     assert sorted(ids) == names
     with pycolmap.Database.open(tmp_path / "db.db") as db:
         cams = db.read_all_cameras()

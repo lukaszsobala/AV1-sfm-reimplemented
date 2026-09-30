@@ -57,8 +57,9 @@ def run_mv_matching(
     with timer.stage("database"):
         ids = create_database(db_path, image_dir, [p.name for p in images], cfg.camera)
         frame_to_id = {i: ids[p.name] for i, p in enumerate(images)}
-        db_stats = write_match_graph(db_path, frame_to_id, graph, two_view=cfg.two_view,
-                                     verify_options=two_view_options())  # fmt: skip
+        db_stats = write_match_graph(
+            db_path, frame_to_id, graph, two_view=cfg.two_view, verify_options=two_view_options()
+        )
     kp = np.array([len(v) for v in graph.keypoints.values()]) if graph.keypoints else np.zeros(1)
     lengths = tracks.lengths()
     return {
@@ -69,7 +70,7 @@ def run_mv_matching(
             **tracks.stats,
             "mean_length": float(lengths.mean()) if len(lengths) else 0.0,
             "max_length": int(lengths.max()) if len(lengths) else 0,
-        },  # fmt: skip
+        },
         "keypoints_per_image": float(kp.mean()),
         "database": db_stats,
         "num_images": len(images),
@@ -96,8 +97,16 @@ def score_database(
             continue
         i1, i2 = pycolmap.pair_id_to_image_pair(pair_id)
         a, b = imgs[i1], imgs[i2]
-        scores.append(score_pair(cams[a.camera_id], cams[b.camera_id], kps[i1][m[:, 0]],
-                                 kps[i2][m[:, 1]], settings, (a.name, b.name)))  # fmt: skip
+        scores.append(
+            score_pair(
+                cams[a.camera_id],
+                cams[b.camera_id],
+                kps[i1][m[:, 0]],
+                kps[i2][m[:, 1]],
+                settings,
+                (a.name, b.name),
+            )
+        )
     return scores, summarize(scores)
 
 

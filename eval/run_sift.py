@@ -46,12 +46,18 @@ def main() -> None:
 
     timer = Timer()
     with timer.stage("extract"):
-        pycolmap.extract_features(a.database, a.image_dir, names, pycolmap.CameraMode.SINGLE,
-                                  reader, extraction, device)  # fmt: skip
+        pycolmap.extract_features(
+            a.database, a.image_dir, names, pycolmap.CameraMode.SINGLE, reader, extraction, device
+        )
     with timer.stage("match"):
         if a.matching == "exhaustive":
-            pycolmap.match_exhaustive(a.database, matching, pycolmap.ExhaustivePairingOptions(),
-                                      two_view_options(), device)  # fmt: skip
+            pycolmap.match_exhaustive(
+                a.database,
+                matching,
+                pycolmap.ExhaustivePairingOptions(),
+                two_view_options(),
+                device,
+            )
         else:
             pairing = pycolmap.SequentialPairingOptions()
             pairing.overlap = a.overlap
@@ -65,7 +71,7 @@ def main() -> None:
             "overlap": a.overlap,
             "camera": [a.camera_model, a.camera_params],
             "cuda": pycolmap.has_cuda,
-        },  # fmt: skip
+        },
         "timings": timer.asdict(),
         "matches": matches_per_image(a.database),
     }

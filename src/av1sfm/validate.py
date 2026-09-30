@@ -50,8 +50,13 @@ def warp_from_references(
         sel = ref == m
         mx = tgt[:, 0].reshape(h, w).astype(np.float32)
         my = tgt[:, 1].reshape(h, w).astype(np.float32)
-        warped = cv2.remap(images[int(m)].astype(np.float32), mx, my, cv2.INTER_LINEAR,
-                           borderMode=cv2.BORDER_REPLICATE)  # fmt: skip
+        warped = cv2.remap(
+            images[int(m)].astype(np.float32),
+            mx,
+            my,
+            cv2.INTER_LINEAR,
+            borderMode=cv2.BORDER_REPLICATE,
+        )
         pred[sel] = warped[sel]
         mask |= sel
     return pred, mask

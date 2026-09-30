@@ -36,23 +36,49 @@ def list_images(image_dir: str | Path) -> list[Path]:
 def ffmpeg_command(
     pattern: str, out_ivf: str | Path, params: EncodeParams, vf: str | None
 ) -> list[str]:
-    cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-           "-framerate", str(params.fps), "-i", pattern]  # fmt: skip
+    cmd = [
+        "ffmpeg",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-framerate",
+        str(params.fps),
+        "-i",
+        pattern,
+    ]
     if vf:
         cmd += ["-vf", vf]
     cmd += ["-pix_fmt", "yuv420p", "-c:v", params.encoder]
     if params.encoder == "libaom-av1":
         cmd += [
-            "-cpu-used", str(params.cpu_used),
-            "-lag-in-frames", "0",
-            "-crf", str(params.crf), "-b:v", "0",
-            "-row-mt", "1",
-            "-threads", str(params.threads),
-        ]  # fmt: skip
+            "-cpu-used",
+            str(params.cpu_used),
+            "-lag-in-frames",
+            "0",
+            "-crf",
+            str(params.crf),
+            "-b:v",
+            "0",
+            "-row-mt",
+            "1",
+            "-threads",
+            str(params.threads),
+        ]
     elif params.encoder == "av1_nvenc":
         # Low-delay: no B-frames / look-ahead, so all references are in the past.
-        cmd += ["-preset", params.nvenc_preset, "-tune", "ll", "-bf", "0",
-                "-rc", "constqp", "-qp", str(params.crf)]  # fmt: skip
+        cmd += [
+            "-preset",
+            params.nvenc_preset,
+            "-tune",
+            "ll",
+            "-bf",
+            "0",
+            "-rc",
+            "constqp",
+            "-qp",
+            str(params.crf),
+        ]
     else:
         raise ValueError(f"unsupported encoder {params.encoder!r}")
     cmd += ["-g", "1000000", "-keyint_min", "1000000", "-f", "ivf", str(out_ivf)]

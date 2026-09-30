@@ -35,8 +35,9 @@ class CameraSpec:
     params: tuple[float, ...] | None = None  # None: COLMAP's default prior (f = 1.2 max(w, h))
 
 
-def two_view_options(max_error: float = 4.0, min_inlier_ratio: float = 0.25,
-                     max_num_trials: int = 10000) -> pycolmap.TwoViewGeometryOptions:  # fmt: skip
+def two_view_options(
+    max_error: float = 4.0, min_inlier_ratio: float = 0.25, max_num_trials: int = 10000
+) -> pycolmap.TwoViewGeometryOptions:
     """Verification options shared by all methods (SIFT baselines and MVs)."""
     opts = pycolmap.TwoViewGeometryOptions()
     opts.ransac.max_error = max_error
@@ -106,9 +107,11 @@ def write_match_graph(
                 db.write_two_view_geometry(ia, ib, tvg)
     if two_view == "verify":
         pycolmap.geometric_verification(
-            db_path, pycolmap.GeometricVerifierOptions(),
-            pycolmap.ExistingMatchedPairingOptions(), verify_options,
-        )  # fmt: skip
+            db_path,
+            pycolmap.GeometricVerifierOptions(),
+            pycolmap.ExistingMatchedPairingOptions(),
+            verify_options,
+        )
     with pycolmap.Database.open(db_path) as db:
         stats["inlier_pairs"] = db.num_verified_image_pairs()
         stats["inlier_matches"] = db.num_inlier_matches()

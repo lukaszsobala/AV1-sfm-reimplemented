@@ -43,9 +43,16 @@ class Timer:
 
     def total(self, names: list[str] | None = None) -> Stage:
         sel = [s for s in self.stages if names is None or s.name in names]
-        return Stage("+".join(s.name for s in sel), sum(s.wall_s for s in sel),
-                     sum(s.cpu_s for s in sel))  # fmt: skip
+        return Stage(
+            "+".join(s.name for s in sel), sum(s.wall_s for s in sel), sum(s.cpu_s for s in sel)
+        )
 
     def asdict(self) -> dict:
-        return {s.name: {"wall_s": round(s.wall_s, 3), "cpu_s": round(s.cpu_s, 3),
-                         "cpu_percent": round(s.cpu_percent, 1)} for s in self.stages}  # fmt: skip
+        return {
+            s.name: {
+                "wall_s": round(s.wall_s, 3),
+                "cpu_s": round(s.cpu_s, 3),
+                "cpu_percent": round(s.cpu_percent, 1),
+            }
+            for s in self.stages
+        }

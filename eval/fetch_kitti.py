@@ -15,8 +15,12 @@ from pathlib import Path
 from remotezip import RemoteZip
 
 BASE = "https://s3.eu-central-1.amazonaws.com/avg-kitti/"
-ARCHIVES = {"image_2": "data_odometry_color.zip", "image_3": "data_odometry_color.zip",
-            "image_0": "data_odometry_gray.zip", "image_1": "data_odometry_gray.zip"}  # fmt: skip
+ARCHIVES = {
+    "image_2": "data_odometry_color.zip",
+    "image_3": "data_odometry_color.zip",
+    "image_0": "data_odometry_gray.zip",
+    "image_1": "data_odometry_gray.zip",
+}
 
 
 def extract(url: str, members: list[str], out: Path) -> None:

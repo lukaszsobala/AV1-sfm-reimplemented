@@ -30,8 +30,9 @@ def _add_encode_args(p: argparse.ArgumentParser) -> None:
 
 
 def _encode_params(a: argparse.Namespace) -> EncodeParams:
-    return EncodeParams(encoder=a.encoder, cpu_used=a.cpu_used, crf=a.crf, fps=a.fps,
-                        threads=a.threads)  # fmt: skip
+    return EncodeParams(
+        encoder=a.encoder, cpu_used=a.cpu_used, crf=a.crf, fps=a.fps, threads=a.threads
+    )
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -86,7 +87,7 @@ def main(argv: list[str] | None = None) -> None:
                 on_violation=a.on_violation,
                 skip_zero=not a.keep_zero,
                 prev_only=a.prev_only,
-            ),  # fmt: skip
+            ),
             encode=_encode_params(a),
             camera=CameraSpec(a.camera_model, _params(a.camera_params)),
             max_pair_gap=a.max_pair_gap,
@@ -102,8 +103,9 @@ def main(argv: list[str] | None = None) -> None:
     elif a.cmd == "score":
         scores, summary = score_database(a.database, RansacSettings(), a.max_pairs)
         if a.out:
-            a.out.write_text(json.dumps({"summary": summary,
-                                         "pairs": [s.asdict() for s in scores]}, indent=1))  # fmt: skip
+            a.out.write_text(
+                json.dumps({"summary": summary, "pairs": [s.asdict() for s in scores]}, indent=1)
+            )
         print(json.dumps(summary, indent=2))
 
     elif a.cmd == "validate-warp":
@@ -120,8 +122,10 @@ def main(argv: list[str] | None = None) -> None:
                     imgs[k] = cv2.imread(str(paths[k]), cv2.IMREAD_GRAYSCALE).astype(np.float32)
             s = score_frame(fm, imgs)
             if s:
-                print(f"frame {s.frame:4d} coverage {s.coverage:.2f}  MAE warp {s.mae_warp:6.2f}"
-                      f"  identity {s.mae_identity:6.2f}  flipped {s.mae_flipped:6.2f}")  # fmt: skip
+                print(
+                    f"frame {s.frame:4d} coverage {s.coverage:.2f}  MAE warp {s.mae_warp:6.2f}"
+                    f"  identity {s.mae_identity:6.2f}  flipped {s.mae_flipped:6.2f}"
+                )
 
 
 if __name__ == "__main__":

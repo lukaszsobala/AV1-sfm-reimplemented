@@ -19,10 +19,29 @@ from .extract import FrameMotion
 # AOM `BLOCK_*` enum value -> (width, height) in pixels. The vendored extractor
 # remaps dav1d's BlockSize to this ordering (AOM av1/common/enums.h).
 AOM_BLOCK_SIZES: tuple[tuple[int, int], ...] = (
-    (4, 4), (4, 8), (8, 4), (8, 8), (8, 16), (16, 8), (16, 16), (16, 32),
-    (32, 16), (32, 32), (32, 64), (64, 32), (64, 64), (64, 128), (128, 64),
-    (128, 128), (4, 16), (16, 4), (8, 32), (32, 8), (16, 64), (64, 16),
-)  # fmt: skip
+    (4, 4),
+    (4, 8),
+    (8, 4),
+    (8, 8),
+    (8, 16),
+    (16, 8),
+    (16, 16),
+    (16, 32),
+    (32, 16),
+    (32, 32),
+    (32, 64),
+    (64, 32),
+    (64, 64),
+    (64, 128),
+    (128, 64),
+    (128, 128),
+    (4, 16),
+    (16, 4),
+    (8, 32),
+    (32, 8),
+    (16, 64),
+    (64, 16),
+)
 _BLOCK_W4 = np.array([w // 4 for w, _ in AOM_BLOCK_SIZES], dtype=np.int32)
 _BLOCK_H4 = np.array([h // 4 for _, h in AOM_BLOCK_SIZES], dtype=np.int32)
 
@@ -94,9 +113,13 @@ def frame_block_motion(
             reference image.
     """
     empty = BlockMotion(
-        fm.index, *(np.zeros(0, np.int64) for _ in range(4)), np.zeros((0, 2)),
-        np.zeros((0, 2)), np.zeros(0, np.int64), np.zeros(0, np.int8),
-    )  # fmt: skip
+        fm.index,
+        *(np.zeros(0, np.int64) for _ in range(4)),
+        np.zeros((0, 2)),
+        np.zeros((0, 2)),
+        np.zeros(0, np.int64),
+        np.zeros(0, np.int8),
+    )
     if fm.is_intra or fm.mv.size == 0:
         return empty
 
@@ -125,8 +148,18 @@ def frame_block_motion(
         if not keep_out_of_frame:
             t = center + mv
             ok &= (t[:, 0] >= 0) & (t[:, 0] < fm.width) & (t[:, 1] >= 0) & (t[:, 1] < fm.height)
-        rows.append((x0[ok], y0[ok], w[ok], h[ok], center[ok], mv[ok], ref_frame[ok],
-                     np.full(int(ok.sum()), lst, np.int8)))  # fmt: skip
+        rows.append(
+            (
+                x0[ok],
+                y0[ok],
+                w[ok],
+                h[ok],
+                center[ok],
+                mv[ok],
+                ref_frame[ok],
+                np.full(int(ok.sum()), lst, np.int8),
+            )
+        )
 
     cat = [np.concatenate(col) for col in zip(*rows)]
     return BlockMotion(fm.index, *cat)
@@ -152,8 +185,13 @@ class MotionLookup:
     ) -> MotionLookup:
         gh, gw = fm.block_map.shape
         if fm.is_intra or fm.mv.size == 0:
-            return cls(fm.index, fm.width, fm.height, np.zeros((gh, gw, 2)),
-                       np.full((gh, gw), -1, np.int64))  # fmt: skip
+            return cls(
+                fm.index,
+                fm.width,
+                fm.height,
+                np.zeros((gh, gw, 2)),
+                np.full((gh, gw), -1, np.int64),
+            )
         slot_to_frame = np.array((-1,) + fm.ref_frame_index, dtype=np.int64)
         cand_mv, cand_ref = [], []
         for lst in (0, 1):
@@ -178,10 +216,13 @@ class MotionLookup:
         cx = np.floor(pts[:, 0] / 4.0).astype(np.int64)
         cy = np.floor(pts[:, 1] / 4.0).astype(np.int64)
         inb = (
-            (pts[:, 0] >= 0) & (pts[:, 0] < self.width)
-            & (pts[:, 1] >= 0) & (pts[:, 1] < self.height)
-            & (cx < gw) & (cy < gh)
-        )  # fmt: skip
+            (pts[:, 0] >= 0)
+            & (pts[:, 0] < self.width)
+            & (pts[:, 1] >= 0)
+            & (pts[:, 1] < self.height)
+            & (cx < gw)
+            & (cy < gh)
+        )
         cx = np.clip(cx, 0, gw - 1)
         cy = np.clip(cy, 0, gh - 1)
         mv = self.mv[cy, cx]
