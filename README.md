@@ -49,6 +49,7 @@ Ubuntu 24.04:
 sudo apt-get install -y build-essential meson ninja-build cmake nasm pkg-config \
      libaom-dev libdav1d-dev libva-dev libdrm-dev libvulkan-dev
 bash setup.sh                 # patched dav1d + shim into third_party/build, then `uv sync`
+                              # (AV1SFM_SKIP_SYNC=1: native part only, for an active venv)
 bash scripts/build_ffmpeg.sh  # FFmpeg n9.0.2 + SVT-AV1 v4.2.0 + Vulkan + QSV + VA-API (~15 min)
 uv run av1sfm encoders        # which AV1 encoders work on this machine
 uv run pytest                 # 61 tests; integration tests need ffmpeg and the dav1d build

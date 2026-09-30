@@ -20,7 +20,7 @@ from pathlib import Path
 
 import numpy as np
 
-from ._vendor.dav1d_inspect import iter_frames
+from ._vendor.dav1d_inspect import _DAV1D_LIB, _find_lib, iter_frames
 
 # AV1 streams produced by libaom use 7 order-hint bits by default; the upstream
 # AV1-Optical-Flow pipeline makes the same assumption (see ASSUMPTIONS.md).
@@ -62,6 +62,12 @@ def iter_frame_motion(ivf_path: str | Path, n_threads: int = 0) -> Iterator[Fram
     frame's order hint goes backwards, which would indicate a stream with
     future references or hidden frames.
     """
+    if _find_lib(_DAV1D_LIB) is None:
+        raise FileNotFoundError(
+            f"patched dav1d not found at {_DAV1D_LIB}.*: run `bash setup.sh` in the "
+            "repository root (needs meson, ninja, nasm and a C compiler), or set "
+            "AV1SFM_BUILD_DIR to an existing build"
+        )
     prev_abs: int | None = None
     for fr in iter_frames(ivf_path, n_threads=n_threads):
         oh = int(fr["frame_offset"])

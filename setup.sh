@@ -3,7 +3,8 @@
 # GIL-free extraction shim, both vendored from sigmedia/AV1-Optical-Flow, then
 # create the Python environment.
 #
-# Requirements: uv, meson, ninja, a C compiler (nasm recommended for SIMD).
+# Requirements: meson, ninja, a C compiler (nasm recommended for SIMD); uv for
+# the Python environment (optional, see AV1SFM_SKIP_SYNC below).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
@@ -54,5 +55,14 @@ else
 fi
 
 cd "$ROOT"
-uv sync
-echo "setup.sh: done. Try: uv run pytest"
+# AV1SFM_SKIP_SYNC=1 builds only the native libraries, e.g. into an already
+# active virtualenv set up with `pip install -e .`.
+if [ "${AV1SFM_SKIP_SYNC:-0}" = 1 ]; then
+  echo "setup.sh: done (skipped uv sync). Try: pytest"
+elif command -v uv > /dev/null; then
+  uv sync
+  echo "setup.sh: done. Try: uv run pytest"
+else
+  echo "setup.sh: native libraries built; uv not found, so install the package" \
+       "into your environment with: pip install -e ." >&2
+fi
