@@ -44,7 +44,7 @@ for N in $SETS; do
 
   # --- identical pairwise geometric scoring of raw matches ---
   for M in mv mv_svt sift_seq sift_exh; do
-    step "$R/score_$M.json" uv run av1sfm score "$R/$M.db" --out "$R/score_$M.json"
+    step "$R/score_$M.json" uv run av1sfm score "$R/$M.db" --repeats 3 --out "$R/score_$M.json"
   done
 
   # --- SfM demo (117 frames only) ---
