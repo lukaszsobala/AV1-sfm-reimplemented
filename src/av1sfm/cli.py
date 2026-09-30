@@ -1,4 +1,4 @@
-"""Command-line interface: `av1sfm {encode,match,score,validate-warp}`."""
+"""Command-line interface: `av1sfm {encode,match,score,validate-warp,encoders}`."""
 
 from __future__ import annotations
 
@@ -10,7 +10,15 @@ import cv2
 import numpy as np
 
 from .colmap_db import CameraSpec
-from .encode import EncodeParams, encode_images, list_images
+from .encode import (
+    BACKENDS,
+    EncodeParams,
+    available_encoders,
+    encode_images,
+    find_ffmpeg,
+    list_images,
+    probe_encoder,
+)
 from .geometry import RansacSettings
 from .pipeline import MVMatchConfig, matches_per_image, run_mv_matching, score_database
 from .tracks import TrackParams
@@ -22,10 +30,25 @@ def _params(s: str | None) -> tuple[float, ...] | None:
 
 def _add_encode_args(p: argparse.ArgumentParser) -> None:
     g = p.add_argument_group("encoding")
-    g.add_argument("--encoder", default="libaom-av1", choices=["libaom-av1", "av1_nvenc"])
-    g.add_argument("--usage", default="realtime", choices=["realtime", "good"])
-    g.add_argument("--cpu-used", type=int, default=6)
-    g.add_argument("--crf", type=int, default=32)
+    g.add_argument(
+        "--encoder",
+        default="libaom",
+        choices=[*BACKENDS, "auto"],
+        help="auto: first working of vulkan, qsv, svtav1",
+    )
+    g.add_argument("--crf", type=int, default=32, help="libaom / svtav1 CRF")
+    g.add_argument("--qp", type=int, default=128, help="vulkan / qsv AV1 qindex (0-255)")
+    g.add_argument("--usage", default="realtime", choices=["realtime", "good"], help="libaom")
+    g.add_argument("--cpu-used", type=int, default=6, help="libaom speed")
+    g.add_argument("--svt-preset", type=int, default=10, help="SVT-AV1 preset")
+    g.add_argument(
+        "--svt-params", default="", help="extra SVT-AV1 params, e.g. hierarchical-levels=2"
+    )
+    g.add_argument(
+        "--hw-device",
+        default=None,
+        help="vulkan: device index; qsv: DRM render node (e.g. /dev/dri/renderD128)",
+    )
     g.add_argument("--fps", type=int, default=10)
     g.add_argument("--threads", type=int, default=0)
 
@@ -35,7 +58,11 @@ def _encode_params(a: argparse.Namespace) -> EncodeParams:
         encoder=a.encoder,
         usage=a.usage,
         cpu_used=a.cpu_used,
+        svt_preset=a.svt_preset,
+        svt_params=a.svt_params,
         crf=a.crf,
+        qp=a.qp,
+        hw_device=a.hw_device,
         fps=a.fps,
         threads=a.threads,
     )
@@ -72,6 +99,9 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("database", type=Path)
     p.add_argument("--out", type=Path, default=None, help="JSON with per-pair scores + summary")
     p.add_argument("--max-pairs", type=int, default=None)
+
+    p = sub.add_parser("encoders", help="list AV1 encoders and test which work here")
+    _add_encode_args(p)
 
     p = sub.add_parser("validate-warp", help="check MV conventions by warping references")
     p.add_argument("ivf", type=Path)
@@ -113,6 +143,19 @@ def main(argv: list[str] | None = None) -> None:
                 json.dumps({"summary": summary, "pairs": [s.asdict() for s in scores]}, indent=1)
             )
         print(json.dumps(summary, indent=2))
+
+    elif a.cmd == "encoders":
+        ff = find_ffmpeg()
+        print(f"ffmpeg: {ff}")
+        compiled = available_encoders(ff)
+        for backend in BACKENDS:
+            if backend not in compiled:
+                print(f"  {backend:7s} not compiled into this ffmpeg")
+                continue
+            params = _encode_params(a)
+            params.encoder = backend
+            ok, err = probe_encoder(params, ff, verbose=True)
+            print(f"  {backend:7s} {'works' if ok else 'FAILS: ' + err}")
 
     elif a.cmd == "validate-warp":
         from .extract import iter_frame_motion

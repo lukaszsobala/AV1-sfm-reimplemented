@@ -1,9 +1,8 @@
 """End-to-end checks on a real AV1 encode of a synthetic sequence with known motion.
 
-Skipped when ffmpeg (with libaom) or the patched dav1d shim is unavailable.
+Run once per software encoder (libaom, SVT-AV1) that the ffmpeg in use provides;
+skipped when ffmpeg or the patched dav1d shim is unavailable.
 """
-
-import shutil
 
 import cv2
 import numpy as np
@@ -11,14 +10,23 @@ import pytest
 
 from av1sfm._vendor import dav1d_inspect
 from av1sfm.blocks import frame_block_motion
-from av1sfm.encode import EncodeParams, encode_images
+from av1sfm.encode import EncodeParams, available_encoders, encode_images, find_ffmpeg
 from av1sfm.extract import load_frame_motion
 from av1sfm.tracks import TrackParams, build_tracks, tracks_to_matches
 from av1sfm.validate import score_frame
 
+
+def _encoders() -> list[str]:
+    try:
+        return available_encoders(find_ffmpeg())
+    except FileNotFoundError, OSError:
+        return []
+
+
+ENCODERS = _encoders()
 pytestmark = pytest.mark.skipif(
-    shutil.which("ffmpeg") is None or dav1d_inspect._load_shim() is None,
-    reason="needs ffmpeg with libaom-av1 and the patched dav1d (run setup.sh)",
+    not ENCODERS or dav1d_inspect._load_shim() is None,
+    reason="needs ffmpeg with an AV1 encoder and the patched dav1d (run setup.sh)",
 )
 
 W, H, N = 321, 181, 8  # odd sizes on purpose: the coded frame is padded
@@ -43,9 +51,11 @@ def to_texture(M: np.ndarray, x: np.ndarray) -> np.ndarray:
     return (x - M[:, 2]) @ np.linalg.inv(M[:, :2]).T
 
 
-@pytest.fixture(scope="module")
-def clip(tmp_path_factory):
-    tmp = tmp_path_factory.mktemp("clip")
+@pytest.fixture(scope="module", params=["libaom", "svtav1"])
+def clip(request, tmp_path_factory):
+    if request.param not in ENCODERS:
+        pytest.skip(f"{request.param} not available in this ffmpeg")
+    tmp = tmp_path_factory.mktemp(f"clip_{request.param}")
     rng = np.random.default_rng(1)
     tex = cv2.GaussianBlur(rng.random((1000, 1400)).astype(np.float32), (0, 0), 2.5)
     tex = cv2.normalize(tex, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
@@ -61,7 +71,7 @@ def clip(tmp_path_factory):
         paths.append(p)
         images[n] = img
     ivf = tmp / "clip.ivf"
-    encode_images(paths, ivf, EncodeParams(crf=20))
+    encode_images(paths, ivf, EncodeParams(encoder=request.param, crf=20))
     return load_frame_motion(ivf), images
 
 
@@ -69,8 +79,9 @@ def test_frame_indices_and_references(clip):
     frames, _ = clip
     assert [f.index for f in frames] == list(range(N))
     assert frames[0].is_intra and not frames[1].is_intra
-    for f in frames[1:]:
-        assert all(0 <= r < f.index for r in f.ref_frame_index)
+    for f in frames[1:]:  # every reference actually used is an earlier frame
+        used = np.unique(f.ref[..., 0][f.ref[..., 0] >= 1])
+        assert all(0 <= f.ref_frame_index[s - 1] < f.index for s in used)
 
 
 def test_block_mvs_match_ground_truth_motion(clip):
@@ -104,7 +115,11 @@ def test_warping_with_mvs_beats_identity_and_flipped_sign(clip):
 def test_tracks_on_real_encode_are_geometrically_consistent(clip):
     frames, _ = clip
     tr = build_tracks(frames, TrackParams())
-    assert tr.num_tracks > 100 and tr.lengths().max() >= N - 1
+    assert tr.num_tracks > 100
+    # Tracks span the clip. With SVT-AV1's layered low-delay references they may
+    # skip frames (e.g. 7 -> 6 -> 4 -> 2 -> 0), so test the span, not the length.
+    span = max(np.ptp(tr.frame[tr.track == t]) for t in range(tr.num_tracks))
+    assert span >= N - 2
     mg = tracks_to_matches(tr)
     assert (0, N - 1) in mg.matches  # non-adjacent matches from propagation
     errs = []
