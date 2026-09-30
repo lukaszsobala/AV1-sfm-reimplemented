@@ -9,12 +9,13 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Literal
 
+import cv2
 import numpy as np
 import pycolmap
 
 from .colmap_db import CameraSpec, create_database, two_view_options, write_match_graph
 from .encode import EncodeParams, encode_images, list_images
-from .extract import load_frame_motion
+from .extract import FrameMotion, load_frame_motion
 from .geometry import PairScore, RansacSettings, score_pair, summarize
 from .timing import Timer
 from .tracks import TrackParams, build_tracks, tracks_to_matches
@@ -53,6 +54,7 @@ def run_mv_matching(
         frames = load_frame_motion(ivf_path, n_threads=cfg.decoder_threads)
     if len(frames) != len(images):
         raise ValueError(f"{len(frames)} decoded frames but {len(images)} images")
+    clamp_to_image_size(frames, images[0])
     with timer.stage("tracks"):
         tracks = build_tracks(frames, cfg.track)
         graph = tracks_to_matches(tracks, cfg.max_pair_gap)
@@ -77,6 +79,21 @@ def run_mv_matching(
         "database": db_stats,
         "num_images": len(images),
     }
+
+
+def clamp_to_image_size(frames: list[FrameMotion], image: Path) -> None:
+    """Limit frames to the source image size.
+
+    Hardware encoders may code a padded frame (e.g. width rounded up to 16 or
+    64 px) and signal the true size only as the render size; the decoded frame
+    is then larger than the images. Keypoints and MV targets must stay inside
+    the real image, so the usable frame size is clamped to it.
+    """
+    h, w = cv2.imread(str(image), cv2.IMREAD_UNCHANGED).shape[:2]
+    for fm in frames:
+        if fm.width < w or fm.height < h:
+            raise ValueError(f"decoded frame {fm.width}x{fm.height} smaller than image {w}x{h}")
+        fm.width, fm.height = w, h
 
 
 def score_database(
