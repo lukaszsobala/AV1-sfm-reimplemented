@@ -23,12 +23,32 @@ def test_pan_tracks_follow_the_motion_chain():
     np.testing.assert_allclose(np.diff(xy, axis=0), np.tile([-2.0, -1.0], (4, 1)))
 
 
-def test_block_centre_seeds_only_where_no_track_arrives():
-    tr = build_tracks(pan_sequence(n=3, mv=(0.25, 0.25)), TrackParams(min_length=1))
+def test_uncovered_seeding_only_where_no_track_arrives():
+    tr = build_tracks(
+        pan_sequence(n=3, mv=(0.25, 0.25)), TrackParams(min_length=1, seed="uncovered")
+    )
     # frame 2 seeds 16 blocks; they land in the same 16 blocks of frame 1 (shift < 4 px),
     # so frame 1 seeds nothing new; frame 0 is intra and seeds nothing either.
     assert tr.stats["seeds"] == 16
     assert (tr.lengths() == 3).all()
+
+
+def test_seed_all_emits_every_block_of_every_frame():
+    # Paper: every block of every inter frame is a source keypoint (16 + 16), and
+    # tracks arriving from frame 2 add their target points to frame 1 as well.
+    tr = build_tracks(pan_sequence(n=3, mv=(-4.0, 0.0)), TrackParams(min_length=1))
+    assert tr.stats["seeds"] == 32
+    kp_frame1 = int(np.sum(tr.frame == 1))
+    assert kp_frame1 == 16 + 16  # own centres + all arrivals (a 4 px shift stays inside)
+
+
+def test_cell_grid_uses_every_4x4_unit():
+    frames = pan_sequence(n=3, mv=(-4.0, 0.0), block=(32, 32))
+    blk = build_tracks(frames, TrackParams(min_length=1, grid="block"))
+    cell = build_tracks(frames, TrackParams(min_length=1, grid="cell"))
+    assert blk.stats["seeds"] == 2 * 4  # four 32x32 blocks per frame
+    assert cell.stats["seeds"] == 2 * 16 * 16  # every 4x4 unit of a 64x64 frame
+    np.testing.assert_allclose(sorted(set(cell.xy[:, 0] % 4)), [2.0])  # cell centres
 
 
 def test_min_length_drops_short_tracks():
@@ -45,7 +65,7 @@ def turning_sequence():
 
 
 def test_cosine_violation_splits_track():
-    tr = build_tracks(turning_sequence(), TrackParams(eps=0.1, min_length=2))
+    tr = build_tracks(turning_sequence(), TrackParams(eps=0.1, min_length=2, on_violation="split"))
     assert tr.stats["cosine_violations"] > 0
     # The turn is in triple (2, 1, 0): tracks are split at frame 1, so (3, 2, 1)
     # survives but no track spans 2 -> 1 -> 0.
@@ -53,6 +73,14 @@ def test_cosine_violation_splits_track():
     assert any({3, 2, 1} <= fr for fr in spans)
     assert not any({2, 1, 0} <= fr for fr in spans)
     assert any(fr == {1, 0} for fr in spans)  # the continuation after the split
+
+
+def test_cosine_violation_cut_terminates_track():
+    tr = build_tracks(turning_sequence(), TrackParams(eps=0.1, min_length=2, on_violation="cut"))
+    spans = [tr.frame[tr.track == t].tolist() for t in range(tr.num_tracks)]
+    assert [3, 2, 1] in spans  # terminated at frame 1, not continued to 0
+    assert not any({2, 1, 0} <= set(fr) for fr in spans)
+    assert [1, 0] in spans  # frame 1's own block centres still start tracks
 
 
 def test_cosine_violation_drop_mode_and_eps_one():
@@ -116,4 +144,15 @@ def test_keypoints_unique_per_frame_track():
 
 def test_invalid_violation_mode():
     with pytest.raises(ValueError):
-        TrackParams(on_violation="cut")
+        TrackParams(on_violation="bogus")
+    with pytest.raises(ValueError):
+        TrackParams(grid="pixel")
+
+
+def test_match_count_guard():
+    from av1sfm.tracks import TooManyMatches
+
+    tr = build_tracks(pan_sequence(n=5), TrackParams())
+    with pytest.raises(TooManyMatches):
+        tracks_to_matches(tr, max_matches=10)
+    assert tracks_to_matches(tr, max_pair_gap=1, max_matches=10).matches  # gap bypasses guard

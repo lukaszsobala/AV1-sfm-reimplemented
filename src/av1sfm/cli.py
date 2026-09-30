@@ -85,7 +85,24 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--eps", type=float, default=0.1, help="cosine tolerance; 1 disables")
     p.add_argument("--tau", type=float, default=2.0, help="min MV length (px) for the cosine test")
     p.add_argument("--min-length", type=int, default=3)
-    p.add_argument("--on-violation", choices=["split", "drop"], default="split")
+    p.add_argument(
+        "--on-violation",
+        choices=["cut", "split", "drop"],
+        default="cut",
+        help="cut: terminate the track (paper); split: continue as a new track",
+    )
+    p.add_argument(
+        "--grid",
+        choices=["block", "cell"],
+        default="block",
+        help="keypoints per coded block, or per 4x4 unit (zero-order hold)",
+    )
+    p.add_argument(
+        "--seed",
+        choices=["all", "uncovered"],
+        default="all",
+        help="all: every block of every frame starts a track (paper)",
+    )
     p.add_argument("--prev-only", action="store_true", help="only MVs pointing to frame n-1")
     p.add_argument("--keep-zero", action="store_true", help="keep (0,0) MVs")
     p.add_argument("--max-pair-gap", type=int, default=None)
@@ -99,6 +116,7 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("database", type=Path)
     p.add_argument("--out", type=Path, default=None, help="JSON with per-pair scores + summary")
     p.add_argument("--max-pairs", type=int, default=None)
+    p.add_argument("--repeats", type=int, default=1, help="RANSAC runs per pair (median)")
 
     p = sub.add_parser("encoders", help="list AV1 encoders and test which work here")
     _add_encode_args(p)
@@ -121,6 +139,8 @@ def main(argv: list[str] | None = None) -> None:
                 tau=a.tau,
                 min_length=a.min_length,
                 on_violation=a.on_violation,
+                grid=a.grid,
+                seed=a.seed,
                 skip_zero=not a.keep_zero,
                 prev_only=a.prev_only,
             ),
@@ -137,7 +157,7 @@ def main(argv: list[str] | None = None) -> None:
         print(text)
 
     elif a.cmd == "score":
-        scores, summary = score_database(a.database, RansacSettings(), a.max_pairs)
+        scores, summary = score_database(a.database, RansacSettings(repeats=a.repeats), a.max_pairs)
         if a.out:
             a.out.write_text(
                 json.dumps({"summary": summary, "pairs": [s.asdict() for s in scores]}, indent=1)

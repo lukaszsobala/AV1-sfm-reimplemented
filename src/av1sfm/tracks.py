@@ -3,20 +3,29 @@
 A track is a physical point followed backwards in time through the chain of
 motion vectors:
 
-  1. It starts at the centre of a coded block B in frame n (the source keypoint).
+  1. It starts at the centre of a block B in frame n (the source keypoint).
   2. B's MV v_nm moves it to x + v_nm in reference frame m (the target keypoint).
   3. In frame m the point lies inside some block B'; B''s MV v_ml moves it on
      to frame l, and so on until it reaches a block with no usable MV
      (intra, (0,0), out of frame) or the first frame.
 
+"Block" is either a coded block (`grid="block"`, the 4x4 metadata grid
+collapsed with the block map) or every 4x4 unit of the zero-order-hold
+upsampled motion field (`grid="cell"`, as the follow-up paper arXiv
+2605.14629 describes the original pipeline).
+
 Frames are visited from last to first, so by the time frame n is processed all
-tracks arriving in it are known. Blocks of n that no arriving track lands in
-seed new tracks at their centres; blocks that already hold an arriving point
-do not, which avoids stacking near-duplicate keypoints on static content.
+tracks arriving in it are known. With `seed="all"` (paper: "for each block
+(p,q) in a frame n, we emit a source keypoint at the center of the block ...
+the generated target point is added to the source keypoints of frame m")
+every block of every frame starts a track, next to the points arriving from
+later frames. `seed="uncovered"` only seeds blocks no arriving point lands in.
 
 Every consecutive triple (n, m, l) of a track must satisfy
 cos(v_nm, v_ml) >= 1 - eps, unless either vector is shorter than tau pixels. On
-a violation the track is either split at m (default) or dropped entirely.
+a violation the track is terminated at m (`cut`, paper: bad MVs "are deleted
+and not considered for matches"; the follow-up paper: "they terminate a
+trajectory"), split at m into two tracks (`split`) or dropped (`drop`).
 Tracks with fewer than `min_length` observations are discarded, and every
 pair of frames on a surviving track becomes a match, which yields matches
 between non-adjacent frames.
@@ -39,13 +48,20 @@ class TrackParams:
     eps: float = 0.1  # require cos >= 1 - eps; eps >= 1 disables the test (paper)
     tau: float = 2.0  # pixels; skip the cosine test when either MV is shorter (ASSUMPTIONS.md)
     min_length: int = 3
-    on_violation: Literal["split", "drop"] = "split"
+    on_violation: Literal["cut", "split", "drop"] = "cut"
+    grid: Literal["block", "cell"] = "block"
+    seed: Literal["all", "uncovered"] = "all"
     skip_zero: bool = True
     prev_only: bool = False
 
     def __post_init__(self) -> None:
-        if self.on_violation not in ("split", "drop"):
-            raise ValueError(f"on_violation must be 'split' or 'drop', got {self.on_violation!r}")
+        for name, allowed in (
+            ("on_violation", ("cut", "split", "drop")),
+            ("grid", ("block", "cell")),
+            ("seed", ("all", "uncovered")),
+        ):
+            if getattr(self, name) not in allowed:
+                raise ValueError(f"{name} must be one of {allowed}, got {getattr(self, name)!r}")
 
     @property
     def cosine_enabled(self) -> bool:
@@ -99,6 +115,37 @@ def _block_id_map(block_map: np.ndarray) -> np.ndarray:
     return oy * gw + ox
 
 
+def _seed_points(
+    fm: FrameMotion, lookup: MotionLookup, p: TrackParams, arrived: np.ndarray
+) -> np.ndarray:
+    """Source keypoints of frame `fm`: centres of its blocks/cells with a usable MV."""
+    gh, gw = fm.block_map.shape
+    if p.grid == "block":
+        gy, gx = block_origins(fm.block_map)
+        bs = fm.block_map[gy, gx]
+        w4, h4 = _BLOCK_W4[bs], _BLOCK_H4[bs]
+        id_map = _block_id_map(fm.block_map)
+    else:
+        gy, gx = (a.ravel() for a in np.indices((gh, gw)))
+        w4 = h4 = np.ones(len(gy), np.int32)
+        id_map = np.arange(gh * gw).reshape(gh, gw)
+    keep = lookup.ref_frame[gy, gx] >= 0
+    keep &= (gx * 4 < fm.width) & (gy * 4 < fm.height)
+    if p.seed == "uncovered" and len(arrived):
+        cx = np.clip((arrived[:, 0] // 4).astype(np.int64), 0, gw - 1)
+        cy = np.clip((arrived[:, 1] // 4).astype(np.int64), 0, gh - 1)
+        keep &= ~np.isin(gy * gw + gx, id_map[cy, cx])
+    gy, gx, w4, h4 = gy[keep], gx[keep], w4[keep], h4[keep]
+    return block_centers(
+        gx.astype(np.int64) * 4,
+        gy.astype(np.int64) * 4,
+        w4.astype(np.int64) * 4,
+        h4.astype(np.int64) * 4,
+        fm.width,
+        fm.height,
+    )
+
+
 def build_tracks(frames: list[FrameMotion], params: TrackParams | None = None) -> Tracks:
     """Propagate block MVs into tracks (see module docstring)."""
     p = params or TrackParams()
@@ -131,30 +178,10 @@ def build_tracks(frames: list[FrameMotion], params: TrackParams | None = None) -
             a_prev = np.zeros((0, 2))
         record(a_ids, n, a_pts)
 
-        # Seed tracks at centres of blocks with a usable MV and no arrival.
+        # Seed tracks at centres of blocks (or 4x4 cells) with a usable MV.
         s_pts = np.zeros((0, 2))
         if not fm.is_intra and fm.mv.size:
-            gy, gx = block_origins(fm.block_map)
-            usable = lookup.ref_frame[gy, gx] >= 0
-            gy, gx = gy[usable], gx[usable]
-            gw = fm.block_map.shape[1]
-            if len(a_pts):
-                ids_map = _block_id_map(fm.block_map)
-                cx = np.clip((a_pts[:, 0] // 4).astype(np.int64), 0, gw - 1)
-                cy = np.clip((a_pts[:, 1] // 4).astype(np.int64), 0, fm.block_map.shape[0] - 1)
-                covered = np.isin(gy * gw + gx, ids_map[cy, cx])
-                gy, gx = gy[~covered], gx[~covered]
-            bs = fm.block_map[gy, gx]
-            x0, y0 = gx.astype(np.int64) * 4, gy.astype(np.int64) * 4
-            inside = (x0 < fm.width) & (y0 < fm.height)
-            s_pts = block_centers(
-                x0[inside],
-                y0[inside],
-                _BLOCK_W4[bs][inside] * 4,
-                _BLOCK_H4[bs][inside] * 4,
-                fm.width,
-                fm.height,
-            )
+            s_pts = _seed_points(fm, lookup, p, a_pts)
         s_ids = np.arange(next_id, next_id + len(s_pts), dtype=np.int64)
         next_id += len(s_pts)
         n_seeds += len(s_pts)
@@ -175,7 +202,9 @@ def build_tracks(frames: list[FrameMotion], params: TrackParams | None = None) -
             viol = valid & ~cosine_ok(prev, v, p.eps, p.tau)
             n_violations += int(viol.sum())
             if viol.any():
-                if p.on_violation == "drop":
+                if p.on_violation == "cut":  # the track ends here
+                    valid &= ~viol
+                elif p.on_violation == "drop":
                     dropped.append(ids[viol])
                     valid &= ~viol
                 else:  # split: the old track ends here, a new one continues
@@ -223,8 +252,27 @@ class MatchGraph:
     matches: dict[tuple[int, int], np.ndarray]  # (fa, fb), fa < fb -> (M, 2) uint32 kp idx
 
 
-def tracks_to_matches(tracks: Tracks, max_pair_gap: int | None = None) -> MatchGraph:
-    """One keypoint per observation; every pair of observations of a track is a match."""
+class TooManyMatches(RuntimeError):
+    pass
+
+
+def tracks_to_matches(
+    tracks: Tracks, max_pair_gap: int | None = None, max_matches: int | None = 100_000_000
+) -> MatchGraph:
+    """One keypoint per observation; every pair of observations of a track is a match.
+
+    A track of length L yields L(L-1)/2 matches. `max_matches` guards against
+    configurations (e.g. `grid="cell"` on long clips) whose match count would
+    exhaust memory; limit the pair gap or raise the cap to proceed.
+    """
+    if max_matches is not None and max_pair_gap is None:
+        lengths = tracks.lengths()
+        total = int((lengths * (lengths - 1) // 2).sum())
+        if total > max_matches:
+            raise TooManyMatches(
+                f"{total:,} matches from {tracks.num_tracks:,} tracks exceed max_matches="
+                f"{max_matches:,}; pass --max-pair-gap (e.g. 10) or a coarser --grid"
+            )
     kp_idx = np.zeros(len(tracks.track), np.int64)
     keypoints: dict[int, np.ndarray] = {}
     for f in np.unique(tracks.frame):
