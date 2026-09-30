@@ -1,7 +1,7 @@
 """Turn an ordered image sequence into a streaming-configuration AV1 IVF file.
 
 Streaming (low-delay) configuration, as in the paper: a single intra frame at
-the start and only past references (no B-frames / look-ahead / ALTREF). Four
+the start and only past references (no B-frames / look-ahead / ALTREF). Five
 FFmpeg backends are supported:
 
   libaom  libaom-av1, `-usage realtime -cpu-used 6 -lag-in-frames 0 -crf 32`
@@ -12,6 +12,8 @@ FFmpeg backends are supported:
           AMD/Intel GPUs), constant QP, no B-frames.
   qsv     av1_qsv (Intel Quick Sync via oneVPL, Arc / Meteor Lake and newer),
           constant QP, no B-frames, low-delay BRC off look-ahead.
+  vaapi   av1_vaapi (VA-API directly, Intel media driver on Arc / Meteor Lake /
+          Lunar Lake and newer, or Mesa on AMD), constant qindex, no B-frames.
 
 Measured on KITTI 00 with libaom (eval/mv_stats.py, see ASSUMPTIONS.md): in the
 realtime profile ~98 % of MVs reference the previous frame and all are
@@ -34,27 +36,28 @@ from dataclasses import dataclass
 from pathlib import Path
 
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}
-BACKENDS = ("libaom", "svtav1", "vulkan", "qsv")
+BACKENDS = ("libaom", "svtav1", "vulkan", "qsv", "vaapi")
 FFMPEG_CODEC = {
     "libaom": "libaom-av1",
     "svtav1": "libsvtav1",
     "vulkan": "av1_vulkan",
     "qsv": "av1_qsv",
+    "vaapi": "av1_vaapi",
 }
-HARDWARE = ("vulkan", "qsv")
+HARDWARE = ("vulkan", "qsv", "vaapi")
 _LOCAL_FFMPEG = Path(__file__).resolve().parents[2] / "third_party/build/media/bin/ffmpeg"
 
 
 @dataclass
 class EncodeParams:
-    encoder: str = "libaom"  # one of BACKENDS, or "auto" (vulkan > qsv > svtav1)
+    encoder: str = "libaom"  # one of BACKENDS, or "auto" (vulkan > qsv > vaapi > svtav1)
     crf: int = 32  # libaom / svtav1 constant quality (0-63)
-    qp: int = 128  # vulkan / qsv constant AV1 quantizer index (0-255); ~CRF 32
+    qp: int = 128  # vulkan / qsv / vaapi constant AV1 quantizer index (0-255); ~CRF 32
     usage: str = "realtime"  # libaom usage profile: "realtime" or "good"
     cpu_used: int = 6  # libaom speed (paper: 6)
     svt_preset: int = 10  # SVT-AV1 preset (0-13, higher = faster)
     svt_params: str = ""  # extra SVT-AV1 key=value pairs, ':'-separated (appended last)
-    hw_device: str | None = None  # vulkan: device index/name; qsv: DRM render node
+    hw_device: str | None = None  # vulkan: device index/name; qsv, vaapi: DRM render node
     threads: int = 0
     fps: int = 10
 
@@ -83,6 +86,9 @@ def _hw_args(params: EncodeParams) -> tuple[list[str], str]:
     if params.encoder == "vulkan":
         init = f"vulkan=vk:{dev}" if dev else "vulkan=vk"
         return ["-init_hw_device", init, "-filter_hw_device", "vk"], "format=nv12,hwupload"
+    if params.encoder == "vaapi":
+        init = f"vaapi=va:{dev}" if dev else "vaapi=va"
+        return ["-init_hw_device", init, "-filter_hw_device", "va"], "format=nv12,hwupload"
     # QSV on Linux sits on VA-API; an explicit render node selects the GPU.
     if dev:
         init = ["-init_hw_device", f"vaapi=va:{dev}", "-init_hw_device", "qsv=qs@va"]
@@ -169,6 +175,22 @@ def codec_args(params: EncodeParams, gop: int) -> list[str]:
             "-g",
             str(gop),
         ]
+    if e == "vaapi":
+        # CQP: without -q:v's QSCALE flag, global_quality is the qindex itself.
+        return [
+            "-c:v",
+            "av1_vaapi",
+            "-rc_mode",
+            "CQP",
+            "-global_quality",
+            str(params.qp),
+            "-bf",
+            "0",
+            "-async_depth",
+            "1",
+            "-g",
+            str(gop),
+        ]
     raise ValueError(f"unknown encoder {e!r}; choose from {BACKENDS}")
 
 
@@ -241,14 +263,14 @@ def _first_error(stderr: str) -> str:
 
 
 def resolve_encoder(params: EncodeParams, ffmpeg: str | None = None) -> EncodeParams:
-    """Replace encoder="auto" by the first working backend: vulkan, qsv, then svtav1."""
+    """Replace encoder="auto" by the first working backend: vulkan, qsv, vaapi, svtav1."""
     if params.encoder != "auto":
         return params
-    for backend in ("vulkan", "qsv", "svtav1"):
+    for backend in ("vulkan", "qsv", "vaapi", "svtav1"):
         cand = EncodeParams(**{**params.__dict__, "encoder": backend})
         if backend in available_encoders(ffmpeg) and probe_encoder(cand, ffmpeg)[0]:
             return cand
-    raise RuntimeError("no working AV1 encoder among vulkan, qsv, svtav1")
+    raise RuntimeError("no working AV1 encoder among vulkan, qsv, vaapi, svtav1")
 
 
 def encode_images(

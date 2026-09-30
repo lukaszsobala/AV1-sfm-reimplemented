@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Build a recent FFmpeg with SVT-AV1, libaom, Vulkan (AV1 Vulkan Video encode)
-# and Intel QSV (oneVPL) into third_party/build/media. av1sfm uses this ffmpeg
+# Build a recent FFmpeg with SVT-AV1, libaom, Vulkan (AV1 Vulkan Video encode),
+# Intel QSV (oneVPL) and VA-API into third_party/build/media. av1sfm uses this ffmpeg
 # automatically when it exists (override with AV1SFM_FFMPEG=/path/to/ffmpeg).
 #
 # Built from source (latest releases at the time of writing):
@@ -10,7 +10,9 @@
 #   sudo apt-get install -y build-essential cmake ninja-build nasm pkg-config \
 #        libaom-dev libva-dev libdrm-dev libvulkan-dev
 # Runtime GPU drivers are needed only for hardware encoding: Mesa RADV/ANV
-# (Vulkan Video AV1 encode) or Intel's VPL GPU runtime (QSV).
+# (Vulkan Video AV1 encode), a VA-API driver with AV1 encode (VA-API), or
+# Intel's VPL GPU runtime on top of it (QSV). For Intel Lunar Lake on Ubuntu
+# 26.04 see README.md ("Intel Lunar Lake / Arc on Ubuntu 26.04").
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

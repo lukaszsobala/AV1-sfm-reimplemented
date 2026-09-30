@@ -34,10 +34,10 @@ def _add_encode_args(p: argparse.ArgumentParser) -> None:
         "--encoder",
         default="libaom",
         choices=[*BACKENDS, "auto"],
-        help="auto: first working of vulkan, qsv, svtav1",
+        help="auto: first working of vulkan, qsv, vaapi, svtav1",
     )
     g.add_argument("--crf", type=int, default=32, help="libaom / svtav1 CRF")
-    g.add_argument("--qp", type=int, default=128, help="vulkan / qsv AV1 qindex (0-255)")
+    g.add_argument("--qp", type=int, default=128, help="vulkan / qsv / vaapi AV1 qindex (0-255)")
     g.add_argument("--usage", default="realtime", choices=["realtime", "good"], help="libaom")
     g.add_argument("--cpu-used", type=int, default=6, help="libaom speed")
     g.add_argument("--svt-preset", type=int, default=10, help="SVT-AV1 preset")
@@ -47,7 +47,7 @@ def _add_encode_args(p: argparse.ArgumentParser) -> None:
     g.add_argument(
         "--hw-device",
         default=None,
-        help="vulkan: device index; qsv: DRM render node (e.g. /dev/dri/renderD128)",
+        help="vulkan: device index; qsv, vaapi: DRM render node (e.g. /dev/dri/renderD128)",
     )
     g.add_argument("--fps", type=int, default=10)
     g.add_argument("--threads", type=int, default=0)

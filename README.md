@@ -20,7 +20,7 @@ is our choice, with evidence), or a deliberate deviation.
 ## Pipeline
 
 ```
-images ──ffmpeg: libaom | SVT-AV1 | Vulkan Video | QSV (low delay, 1 keyframe)──▶ clip.ivf
+images ──ffmpeg: libaom | SVT-AV1 | Vulkan Video | QSV | VA-API (low delay, 1 keyframe)──▶ clip.ivf
 clip.ivf ──patched dav1d (in-memory block metadata)──▶ per-frame 4×4 MV grids
    ──collapse to coded blocks──▶ block-centre keypoints + MV targets
    ──propagate through the MV chain, cosine filter, min length 3──▶ tracks
@@ -30,7 +30,7 @@ clip.ivf ──patched dav1d (in-memory block metadata)──▶ per-frame 4×4 
 
 | Module | Role |
 |---|---|
-| `src/av1sfm/encode.py` | Image sequence → streaming AV1 IVF with libaom, SVT-AV1, Vulkan Video or Intel QSV (see [Encoders](#encoders)). |
+| `src/av1sfm/encode.py` | Image sequence → streaming AV1 IVF with libaom, SVT-AV1, Vulkan Video, Intel QSV or VA-API (see [Encoders](#encoders)). |
 | `src/av1sfm/extract.py` | Wraps the vendored extractor; resolves order hints and reference slots to absolute frame indices. |
 | `src/av1sfm/blocks.py` | Collapses the 4×4 grid to coded blocks; block-centre keypoints; MV → target point; per-point MV lookup. |
 | `src/av1sfm/tracks.py` | Track propagation, cosine consistency filter (ε, τ), minimum length, all-pairs matches. |
@@ -49,9 +49,9 @@ Ubuntu 24.04:
 sudo apt-get install -y build-essential meson ninja-build cmake nasm pkg-config \
      libaom-dev libdav1d-dev libva-dev libdrm-dev libvulkan-dev
 bash setup.sh                 # patched dav1d + shim into third_party/build, then `uv sync`
-bash scripts/build_ffmpeg.sh  # FFmpeg n9.0.2 + SVT-AV1 v4.2.0 + Vulkan + QSV (~15 min)
+bash scripts/build_ffmpeg.sh  # FFmpeg n9.0.2 + SVT-AV1 v4.2.0 + Vulkan + QSV + VA-API (~15 min)
 uv run av1sfm encoders        # which AV1 encoders work on this machine
-uv run pytest                 # 59 tests; integration tests need ffmpeg and the dav1d build
+uv run pytest                 # 61 tests; integration tests need ffmpeg and the dav1d build
 ```
 
 `scripts/build_ffmpeg.sh` installs into `third_party/build/media`, and av1sfm
@@ -93,11 +93,11 @@ Main `match` options (defaults in brackets):
 | `--prev-only` | use only MVs whose reference is the previous frame. |
 | `--max-pair-gap` | only emit matches between frames at most this far apart. |
 | `--two-view` [verify] | `verify`: COLMAP's geometric verification with the shared RANSAC settings; `trust`: all MV matches are stored as inliers. |
-| `--encoder` [libaom] | `libaom`, `svtav1`, `vulkan`, `qsv`, or `auto` (see below). |
-| `--crf` [32], `--qp` [128] | CRF for libaom/SVT-AV1; constant AV1 qindex (0–255) for Vulkan/QSV. |
+| `--encoder` [libaom] | `libaom`, `svtav1`, `vulkan`, `qsv`, `vaapi`, or `auto` (see below). |
+| `--crf` [32], `--qp` [128] | CRF for libaom/SVT-AV1; constant AV1 qindex (0–255) for Vulkan/QSV/VA-API. |
 | `--usage`, `--cpu-used` [realtime, 6] | libaom settings. |
 | `--svt-preset` [10], `--svt-params` | SVT-AV1 preset and extra `key=value:...` parameters. |
-| `--hw-device` | Vulkan device index, or QSV DRM render node (e.g. `/dev/dri/renderD128`). |
+| `--hw-device` | Vulkan device index, or QSV / VA-API DRM render node (e.g. `/dev/dri/renderD128`). |
 
 ## Encoders
 
@@ -111,13 +111,40 @@ so every backend's reference structure is handled.
 | `svtav1` | `libsvtav1` (SVT-AV1 4.2) | `-preset 10 -crf 32 -svtav1-params pred-struct=1:rtc=1:keyint=-1` | Tested. About 4× faster to encode than libaom on KITTI, but layered references (51 % to n−1), 19 % compound blocks and noisier MVs (warp error 8.9 vs 5.1). |
 | `vulkan` | `av1_vulkan` (Vulkan Video) | hwupload to a Vulkan device, `-rc_mode cqp -qp 128 -bf 0 -tune ll -usage stream` | Needs `VK_KHR_video_encode_av1`: Mesa RADV (AMD RDNA3+) or ANV (Intel Arc / Xe2+). **Not tested on hardware** (development container has only lavapipe). |
 | `qsv` | `av1_qsv` (oneVPL) | VA-API device, hwupload, `-preset veryfast -q:v 128 -bf 0 -look_ahead_depth 0` | Needs Intel Arc / Meteor Lake or newer with the VPL GPU runtime. **Not tested on hardware.** |
-| `auto` | | first working of `vulkan`, `qsv`, `svtav1` | |
+| `vaapi` | `av1_vaapi` (VA-API) | hwupload to a VA-API device, `-rc_mode CQP -global_quality 128 -bf 0` | Needs a VA-API driver with AV1 encode (Intel media driver on Arc / Meteor Lake / Lunar Lake, Mesa on AMD RDNA3+). The most direct Intel path on Linux. **Not tested on hardware.** |
+| `auto` | | first working of `vulkan`, `qsv`, `vaapi`, `svtav1` | |
 
 `uv run av1sfm encoders` lists the backends compiled into the ffmpeg in use
 and runs a 3-frame test encode with each, printing the specific failure (for
 example, a driver without `VK_KHR_video_encode_queue`). Hardware MV search is
 usually coarser than software, so check the MVs on a new encoder with
 `uv run python eval/mv_stats.py clip.ivf` and `uv run av1sfm validate-warp clip.ivf images/`.
+
+### Intel Lunar Lake / Arc on Ubuntu 26.04
+
+Install the GPU user-space stack from Intel's graphics PPA (package names as
+in that PPA; check `apt search` if they differ):
+
+```bash
+sudo add-apt-repository ppa:kobuk-team/intel-graphics
+sudo apt-get install -y intel-media-va-driver-non-free libmfx-gen1 libvpl2 \
+     vainfo mesa-vulkan-drivers vulkan-tools
+vainfo | grep -i av1           # want VAProfileAV1Profile0 : VAEntrypointEncSliceLP
+vulkaninfo | grep -i video_encode_av1   # Vulkan Video path (Mesa ANV)
+bash scripts/build_ffmpeg.sh && uv run av1sfm encoders
+```
+
+Then check the hardware MVs before running the evaluation, for example on KITTI:
+
+```bash
+uv run av1sfm encode runs/kitti117/img runs/kitti117/clip_vaapi.ivf --encoder vaapi
+uv run python eval/mv_stats.py runs/kitti117/clip_vaapi.ivf     # MV precision, refs, block sizes
+uv run av1sfm validate-warp runs/kitti117/clip_vaapi.ivf runs/kitti117/img
+```
+
+Compare against the libaom numbers in ASSUMPTIONS.md (E4: 97.7 % of MVs to the
+previous frame, quarter-pel). If most MVs reference older frames, try
+`--prev-only`. The quality setting (`--qp`) may also need re-tuning (E5d).
 
 ## Reproducing the evaluation
 

@@ -51,6 +51,18 @@ def test_qsv_render_node_via_vaapi():
     assert opt(cmd_for(encoder="qsv"), "-init_hw_device") == "qsv=qs"
 
 
+def test_vaapi_constant_qindex_on_render_node():
+    c = cmd_for(encoder="vaapi", qp=110, hw_device="/dev/dri/renderD128")
+    assert opt(c, "-init_hw_device") == "vaapi=va:/dev/dri/renderD128"
+    assert opt(c, "-filter_hw_device") == "va" and opt(c, "-vf") == "format=nv12,hwupload"
+    assert opt(c, "-c:v") == "av1_vaapi" and opt(c, "-rc_mode") == "CQP"
+    # -global_quality (not -q:v, which would set QSCALE and divide by FF_QP2LAMBDA)
+    assert opt(c, "-global_quality") == "110" and "-q:v" not in c
+    assert opt(c, "-bf") == "0" and opt(c, "-g") == "118"
+    assert c.index("-init_hw_device") < c.index("-i")
+    assert opt(cmd_for(encoder="vaapi"), "-init_hw_device") == "vaapi=va"
+
+
 def test_scale_is_applied_before_upload():
     c = ffmpeg_command(
         SRC,
