@@ -65,29 +65,36 @@ def main(root: Path) -> None:
                 f"| {fmt(s.get('inlier_ratio_pooled'), 3)} "
                 f"| {fmt(s.get('sampson_px_median_of_pairs'), 3)} |"
             )
-        maps = [(label, load(d / f"map_{key}.json")) for key, label in METHODS]
-        if any(m for _, m in maps):
-            print(
-                "\n| Method | Registered | 3D points | Reproj. error (px) | Mean track length "
-                "| Mapper wall (s) | Final global BA (s) |"
-            )
-            print("|---|---:|---:|---:|---:|---:|---:|")
-            for label, m in maps:
-                if not m:
-                    continue
-                if not m.get("num_models"):
-                    print(
-                        f"| {label} | 0 | – | – | – | {fmt(m['timings']['mapper']['wall_s'], 1)} | – |"
-                    )
-                    continue
-                print(
-                    f"| {label} | {m['registered_images']}/{n_img} | {fmt(m['points3D'])} "
-                    f"| {fmt(m['mean_reprojection_error_px'], 3)} "
-                    f"| {fmt(m['mean_track_length'], 2)} "
-                    f"| {fmt(m['timings']['mapper']['wall_s'], 1)} "
-                    f"| {fmt(m['final_global_ba_s'], 1)} |"
-                )
+        for prefix, title in (
+            ("map_", "intrinsics fixed at calibration"),
+            ("map_refine_", "COLMAP default intrinsics refinement"),
+        ):
+            sfm_table(d, n_img, prefix, title)
         print()
+
+
+def sfm_table(d: Path, n_img: int, prefix: str, title: str) -> None:
+    maps = [(label, load(d / f"{prefix}{key}.json")) for key, label in METHODS]
+    if not any(m for _, m in maps):
+        return
+    print(f"\nSfM, {title}:\n")
+    print(
+        "| Method | Registered | 3D points | Reproj. error (px) | Mean track length "
+        "| Mapper wall (s) | Final global BA (s) |"
+    )
+    print("|---|---:|---:|---:|---:|---:|---:|")
+    for label, m in maps:
+        if not m:
+            continue
+        wall = fmt(m["timings"]["mapper"]["wall_s"], 1)
+        if not m.get("num_models"):
+            print(f"| {label} | 0/{n_img} | – | – | – | {wall} | – |")
+            continue
+        print(
+            f"| {label} | {m['registered_images']}/{n_img} | {fmt(m['points3D'])} "
+            f"| {fmt(m['mean_reprojection_error_px'], 3)} | {fmt(m['mean_track_length'], 2)} "
+            f"| {wall} | {fmt(m['final_global_ba_s'], 1)} |"
+        )
 
 
 if __name__ == "__main__":

@@ -48,10 +48,15 @@ for N in $SETS; do
   done
 
   # --- SfM demo (117 frames only) ---
+  # Primary: intrinsics fixed at the KITTI calibration (identical for all methods).
+  # Secondary: COLMAP's default intrinsics refinement (map_refine_*), reported
+  # because it breaks MV reconstructions (see ASSUMPTIONS.md R5).
   if [ "$N" = 117 ]; then
     for M in mv mv_trust mv_svt sift_seq sift_exh; do
-      step "$R/map_$M.json" uv run python eval/run_mapper.py "$R/$M.db" "$R/img" "$R/rec_$M" $MAPPER_ARGS \
-        --stats "$R/map_$M.json"
+      step "$R/map_$M.json" uv run python eval/run_mapper.py "$R/$M.db" "$R/img" "$R/rec_$M" \
+        $MAPPER_ARGS --fix-intrinsics --stats "$R/map_$M.json"
+      step "$R/map_refine_$M.json" uv run python eval/run_mapper.py "$R/$M.db" "$R/img" \
+        "$R/rec_refine_$M" $MAPPER_ARGS --stats "$R/map_refine_$M.json"
     done
   fi
 done
