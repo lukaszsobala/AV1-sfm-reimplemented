@@ -23,15 +23,21 @@ def _params(s: str | None) -> tuple[float, ...] | None:
 def _add_encode_args(p: argparse.ArgumentParser) -> None:
     g = p.add_argument_group("encoding")
     g.add_argument("--encoder", default="libaom-av1", choices=["libaom-av1", "av1_nvenc"])
+    g.add_argument("--usage", default="realtime", choices=["realtime", "good"])
     g.add_argument("--cpu-used", type=int, default=6)
-    g.add_argument("--crf", type=int, default=30)
+    g.add_argument("--crf", type=int, default=32)
     g.add_argument("--fps", type=int, default=10)
     g.add_argument("--threads", type=int, default=0)
 
 
 def _encode_params(a: argparse.Namespace) -> EncodeParams:
     return EncodeParams(
-        encoder=a.encoder, cpu_used=a.cpu_used, crf=a.crf, fps=a.fps, threads=a.threads
+        encoder=a.encoder,
+        usage=a.usage,
+        cpu_used=a.cpu_used,
+        crf=a.crf,
+        fps=a.fps,
+        threads=a.threads,
     )
 
 

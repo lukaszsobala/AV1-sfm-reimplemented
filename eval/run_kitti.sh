@@ -8,6 +8,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 SETS="${SETS:-117 230}"
+# Steps whose output already exists are skipped; delete runs/kitti<N> to redo.
+step() { local out="$1"; shift; [ -e "$out" ] && { echo "skip: $out exists"; return; }; "$@"; }
 # Rectified left colour camera (P2): f, cx, cy; k = 0 for SIMPLE_RADIAL.
 K="718.856,607.1928,185.2157,0"
 # KITTI drives forward: the default initial-pair constraints never accept a pair.
@@ -24,26 +26,27 @@ for N in $SETS; do
   done
 
   # --- AV1 motion vectors (eps = 0.1, tau = 1 px, min track length 3) ---
-  uv run av1sfm match "$R/img" "$R/mv.db" --ivf "$R/clip.ivf" --encode \
+  # Encoder: libaom, -usage realtime -cpu-used 6 -lag-in-frames 0, CRF 32 (defaults).
+  step "$R/mv.json" uv run av1sfm match "$R/img" "$R/mv.db" --ivf "$R/clip.ivf" --encode \
     --camera-params "$K" --stats "$R/mv.json"
-  uv run av1sfm match "$R/img" "$R/mv_trust.db" --ivf "$R/clip.ivf" \
+  step "$R/mv_trust.json" uv run av1sfm match "$R/img" "$R/mv_trust.db" --ivf "$R/clip.ivf" \
     --camera-params "$K" --two-view trust --stats "$R/mv_trust.json"
 
   # --- COLMAP SIFT baselines (CPU) ---
-  uv run python eval/run_sift.py "$R/img" "$R/sift_seq.db" --matching sequential \
+  step "$R/sift_seq.json" uv run python eval/run_sift.py "$R/img" "$R/sift_seq.db" --matching sequential \
     --overlap 10 --camera-params "$K" --stats "$R/sift_seq.json"
-  uv run python eval/run_sift.py "$R/img" "$R/sift_exh.db" --matching exhaustive \
+  step "$R/sift_exh.json" uv run python eval/run_sift.py "$R/img" "$R/sift_exh.db" --matching exhaustive \
     --camera-params "$K" --stats "$R/sift_exh.json"
 
   # --- identical pairwise geometric scoring of raw matches ---
   for M in mv sift_seq sift_exh; do
-    uv run av1sfm score "$R/$M.db" --out "$R/score_$M.json"
+    step "$R/score_$M.json" uv run av1sfm score "$R/$M.db" --out "$R/score_$M.json"
   done
 
   # --- SfM demo (117 frames only) ---
   if [ "$N" = 117 ]; then
     for M in mv mv_trust sift_seq sift_exh; do
-      uv run python eval/run_mapper.py "$R/$M.db" "$R/img" "$R/rec_$M" $MAPPER_ARGS \
+      step "$R/map_$M.json" uv run python eval/run_mapper.py "$R/$M.db" "$R/img" "$R/rec_$M" $MAPPER_ARGS \
         --stats "$R/map_$M.json"
     done
   fi

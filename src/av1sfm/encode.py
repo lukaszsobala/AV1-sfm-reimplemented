@@ -1,11 +1,19 @@
 """Turn an ordered image sequence into a streaming-configuration AV1 IVF file.
 
 Streaming (low-delay) configuration, as in the paper: a single intra frame at
-the start and only past references. With libaom this is `lag-in-frames=0`
-(no look-ahead, hence no ALTREF/BWDREF pointing to the future) plus a keyframe
-interval longer than the clip. libaom cannot be restricted to LAST-only
-prediction (`max-reference-frames` >= 3), so blocks may reference LAST2, LAST3
-or GOLDEN; `blocks.frame_block_motion` resolves the actual reference frame.
+the start and only past references. With libaom this is the real-time usage
+profile (`-usage realtime`) with `lag-in-frames=0` (no look-ahead, hence no
+ALTREF/BWDREF pointing to the future) and a keyframe interval longer than the
+clip, at FFmpeg's default CRF of 32.
+
+Measured on KITTI 00 (eval/mv_stats.py, see ASSUMPTIONS.md): in this
+configuration ~98 % of MVs reference the previous frame and all MVs are
+quarter-pel (libaom disables high-precision MVs), matching the paper's
+description. With the "good" usage profile at the same speed only ~86 % point
+to the previous frame and ~48 % of MV components use 1/8 pel at every CRF
+tried (30-55). libaom cannot be restricted to LAST-only prediction
+(`max-reference-frames` >= 3), so `blocks.frame_block_motion` always resolves
+each MV's actual reference frame.
 """
 
 from __future__ import annotations
@@ -22,8 +30,9 @@ IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}
 @dataclass
 class EncodeParams:
     encoder: str = "libaom-av1"  # or "av1_nvenc" when an NVIDIA GPU is available
+    usage: str = "realtime"  # libaom usage profile: "realtime" or "good"
     cpu_used: int = 6  # libaom speed preset (paper: 6)
-    crf: int = 30  # constant quality; the paper does not state a rate target
+    crf: int = 32  # FFmpeg's libaom default; the paper does not state a rate target
     nvenc_preset: str = "p1"  # paper: NVENC preset 1
     threads: int = 0
     fps: int = 10
@@ -52,6 +61,8 @@ def ffmpeg_command(
     cmd += ["-pix_fmt", "yuv420p", "-c:v", params.encoder]
     if params.encoder == "libaom-av1":
         cmd += [
+            "-usage",
+            params.usage,
             "-cpu-used",
             str(params.cpu_used),
             "-lag-in-frames",
