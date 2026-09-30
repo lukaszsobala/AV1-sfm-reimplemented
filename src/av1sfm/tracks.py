@@ -37,7 +37,7 @@ from .extract import FrameMotion
 @dataclass
 class TrackParams:
     eps: float = 0.1  # require cos >= 1 - eps; eps >= 1 disables the test (paper)
-    tau: float = 1.0  # pixels; skip the cosine test when either MV is shorter
+    tau: float = 2.0  # pixels; skip the cosine test when either MV is shorter (ASSUMPTIONS.md)
     min_length: int = 3
     on_violation: Literal["split", "drop"] = "split"
     skip_zero: bool = True

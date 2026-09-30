@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Literal
@@ -78,35 +80,40 @@ def run_mv_matching(
 
 
 def score_database(
-    db_path: str | Path, settings: RansacSettings | None = None, max_pairs: int | None = None
+    db_path: str | Path,
+    settings: RansacSettings | None = None,
+    max_pairs: int | None = None,
+    num_threads: int | None = None,
 ) -> tuple[list[PairScore], dict]:
-    """Score the raw matches of every pair in a COLMAP database (any method)."""
+    """Score the raw matches of every pair in a COLMAP database (any method).
+
+    Pairs are scored in parallel threads (pycolmap releases the GIL); each pair
+    uses a fixed RANSAC seed, so results do not depend on scheduling.
+    """
     settings = settings or RansacSettings()
-    scores: list[PairScore] = []
     with pycolmap.Database.open(db_path) as db:
         cams = {c.camera_id: c for c in db.read_all_cameras()}
         imgs = {im.image_id: im for im in db.read_all_images()}
         kps = {i: db.read_keypoints(i)[:, :2].astype(np.float64) for i in imgs}
         pair_ids, matches = db.read_all_matches()
-    order = np.argsort(pair_ids)
-    for n, k in enumerate(order):
-        if max_pairs is not None and n >= max_pairs:
-            break
-        pair_id, m = pair_ids[k], matches[k]
-        if len(m) == 0:
-            continue
-        i1, i2 = pycolmap.pair_id_to_image_pair(pair_id)
-        a, b = imgs[i1], imgs[i2]
-        scores.append(
-            score_pair(
-                cams[a.camera_id],
-                cams[b.camera_id],
-                kps[i1][m[:, 0]],
-                kps[i2][m[:, 1]],
-                settings,
-                (a.name, b.name),
-            )
+    order = [k for k in np.argsort(pair_ids) if len(matches[k])]
+    if max_pairs is not None:
+        order = order[:max_pairs]
+
+    def job(k: int) -> PairScore:
+        i1, i2 = pycolmap.pair_id_to_image_pair(pair_ids[k])
+        a, b, m = imgs[i1], imgs[i2], matches[k]
+        return score_pair(
+            cams[a.camera_id],
+            cams[b.camera_id],
+            kps[i1][m[:, 0]],
+            kps[i2][m[:, 1]],
+            settings,
+            (a.name, b.name),
         )
+
+    with ThreadPoolExecutor(num_threads or os.cpu_count()) as pool:
+        scores = list(pool.map(job, order))
     return scores, summarize(scores)
 
 

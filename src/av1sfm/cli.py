@@ -50,7 +50,7 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--ivf", type=Path, required=True)
     p.add_argument("--encode", action="store_true", help="(re)encode image_dir to --ivf first")
     p.add_argument("--eps", type=float, default=0.1, help="cosine tolerance; 1 disables")
-    p.add_argument("--tau", type=float, default=1.0, help="min MV length (px) for the cosine test")
+    p.add_argument("--tau", type=float, default=2.0, help="min MV length (px) for the cosine test")
     p.add_argument("--min-length", type=int, default=3)
     p.add_argument("--on-violation", choices=["split", "drop"], default="split")
     p.add_argument("--prev-only", action="store_true", help="only MVs pointing to frame n-1")
