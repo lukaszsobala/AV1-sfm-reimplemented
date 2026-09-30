@@ -1,0 +1,38 @@
+[project]
+name = "av1sfm"
+version = "0.1.0"
+description = "Reimplementation of AV1 motion-vector feature matching for Structure-from-Motion (Zouein et al., arXiv 2510.17434)."
+readme = "README.md"
+license = "AGPL-3.0-or-later"
+requires-python = ">=3.14"
+dependencies = [
+    "numpy>=2.3",
+    "opencv-python-headless>=4.12",
+    "pycolmap>=4.2",
+    "psutil>=7.0",
+    "remotezip>=0.12",
+    "tqdm>=4.67",
+]
+
+[project.scripts]
+av1sfm = "av1sfm.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4",
+    "ruff>=0.13",
+]
+
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/av1sfm"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+extend-exclude = ["src/av1sfm/_vendor"]

@@ -1,0 +1,285 @@
+diff --git a/include/dav1d/dav1d.h b/include/dav1d/dav1d.h
+index e8f07057..47f33cea 100644
+--- a/include/dav1d/dav1d.h
++++ b/include/dav1d/dav1d.h
+@@ -75,6 +75,37 @@ enum Dav1dDecodeFrameType {
+     DAV1D_DECODEFRAMETYPE_KEY   = 3, ///< decode and return keyframes only
+ };
+ 
++/**
++ * Inspection callback data (AV1-Optical-Flow patch, gated by CONFIG_INSPECTION).
++ *
++ * Delivered once per decoded frame, before the decoder releases its internal
++ * motion-vector buffers. `blocks` points at the full-frame 4x4 spatial block
++ * grid (the analogue of AOM inspect's per-MI grid), indexed
++ * `blocks[y * blk_stride + x]` for y in [0, blk_h), x in [0, blk_w). Each record
++ * is a 12-byte packed `refmvs_block`:
++ *
++ *     offset 0:  int16_t mv[0].y, mv[0].x   (list 0 / backward, 1/8-pel)
++ *     offset 4:  int16_t mv[1].y, mv[1].x   (list 1 / forward,  1/8-pel)
++ *     offset 8:  int8_t  ref[0], ref[1]     (1..7 ref slot, 0 = intra, -1 = none)
++ *     offset 10: uint8_t bs                 (enum BlockSize, dav1d ordering)
++ *     offset 11: uint8_t mf                 (mode flags: 1 = globalmv/affine, 2 = newmv)
++ *
++ * `blocks` is NULL for intra/key frames (no motion field). The pointer is only
++ * valid for the duration of the callback; copy out anything you need to keep.
++ */
++typedef struct Dav1dInspectData {
++    unsigned decode_seq;     ///< monotonic decode-order index (for reordering
++                             ///< frames that complete out of order under threading)
++    unsigned frame_offset;   ///< order hint / picture order count of this frame
++    int frame_type;          ///< enum Dav1dFrameType
++    int width, height;       ///< luma dimensions in pixels
++    int blk_w, blk_h;        ///< valid block-grid dimensions, in 4x4 blocks
++    ptrdiff_t blk_stride;    ///< row stride of `blocks`, in 12-byte records
++    const void *blocks;      ///< 4x4 spatial block grid, or NULL (intra)
++    int8_t refidx[7];        ///< reference slot index per ref frame
++    unsigned refpoc[7];      ///< order hint / POC of each reference frame
++} Dav1dInspectData;
++
+ typedef struct Dav1dSettings {
+     int n_threads; ///< number of threads (0 = number of logical cores in host system, default 0)
+     int max_frame_delay; ///< Set to 1 for low-latency decoding (0 = ceil(sqrt(n_threads)), default 0)
+@@ -95,6 +126,9 @@ typedef struct Dav1dSettings {
+                                                ///< DAV1D_INLOOPFILTER_ALL)
+     enum Dav1dDecodeFrameType decode_frame_type; ///< frame types to decode (default
+                                                  ///< DAV1D_DECODEFRAMETYPE_ALL)
++    void *inspect_cookie; ///< custom pointer passed to inspect_cb (AV1-Optical-Flow patch)
++    void (*inspect_cb)(void *cookie, const Dav1dInspectData *data); ///< per-frame block
++                          ///< metadata callback; NULL to disable (default NULL)
+     uint8_t reserved[16]; ///< reserved for future use
+ } Dav1dSettings;
+ 
+diff --git a/meson.build b/meson.build
+index b7e4c4be..247247a6 100644
+--- a/meson.build
++++ b/meson.build
+@@ -86,6 +86,9 @@ cdata.set10('TRIM_DSP_FUNCTIONS', get_option('trim_dsp') == 'true' or
+ # Logging option
+ cdata.set10('CONFIG_LOG', get_option('logging'))
+ 
++# Inspection option (AV1-Optical-Flow: per-frame block-metadata callback)
++cdata.set10('CONFIG_INSPECTION', get_option('enable_inspection'))
++
+ #
+ # OS/Compiler checks and defines
+ #
+diff --git a/meson_options.txt b/meson_options.txt
+index c04deffd..398cc40d 100644
+--- a/meson_options.txt
++++ b/meson_options.txt
+@@ -40,6 +40,11 @@ option('logging',
+     value: true,
+     description: 'Print error log messages using the provided callback function')
+ 
++option('enable_inspection',
++    type: 'boolean',
++    value: false,
++    description: 'Enable per-frame block-metadata inspection callback (AV1-Optical-Flow)')
++
+ option('testdata_tests',
+     type: 'boolean',
+     value: false,
+diff --git a/src/decode.c b/src/decode.c
+index fb5d23cd..9d88870e 100644
+--- a/src/decode.c
++++ b/src/decode.c
+@@ -2725,6 +2725,19 @@ int dav1d_decode_tile_sbrow(Dav1dTaskContext *const t) {
+                                t->by >> 1, (t->by + sb_step) >> 1);
+     }
+ 
++#if CONFIG_INSPECTION
++    // AV1-Optical-Flow: harvest this tile/sbrow's 4x4 blocks (n_tc > 1 path).
++    // Each (tile, sbrow) writes a disjoint region of f->inspect_r, so concurrent
++    // task threads do not race. Harvest in the symbol-decode pass only (pass 0 =
++    // single pass, pass 1 = first pass of 2-pass frame threading); the refmvs
++    // window is not repopulated in the reconstruction pass (pass 2).
++    if (f->inspect_r && t->frame_thread.pass != 2) {
++        dav1d_refmvs_save_inspect(&t->rt, f->inspect_r, f->bw,
++                                  ts->tiling.col_start, ts->tiling.col_end,
++                                  t->by, t->by + sb_step);
++    }
++#endif
++
+     // backup pre-loopfilter pixels for intra prediction of the next sbrow
+     if (t->frame_thread.pass != 1)
+         f->bd_fn.backup_ipred_edge(t);
+@@ -3228,6 +3241,12 @@ int dav1d_decode_frame_main(Dav1dFrameContext *const f) {
+                 dav1d_refmvs_save_tmvs(&f->c->refmvs_dsp, &t->rt,
+                                        0, f->bw >> 1, t->by >> 1, by_end);
+             }
++#if CONFIG_INSPECTION
++            if (f->inspect_r) {
++                dav1d_refmvs_save_inspect(&t->rt, f->inspect_r, f->bw,
++                                          0, f->bw, t->by, t->by + f->sb_step);
++            }
++#endif
+ 
+             // loopfilter + cdef + restoration
+             f->bd_fn.filter_sbrow(f, sby);
+@@ -3245,6 +3264,33 @@ void dav1d_decode_frame_exit(Dav1dFrameContext *const f, int retval) {
+     if (f->sr_cur.p.data[0])
+         atomic_init(&f->task_thread.error, 0);
+ 
++#if CONFIG_INSPECTION
++    // AV1-Optical-Flow: deliver per-frame block metadata before the internal
++    // buffers are released below. Exposes the full-frame 4x4 spatial block grid
++    // (motion vectors, reference indices, block size); intra/key frames carry no
++    // motion field.
++    if (!retval && c->inspect_cb && f->frame_hdr) {
++        Dav1dInspectData data;
++        data.decode_seq   = f->inspect_seq;
++        data.frame_offset = f->frame_hdr->frame_offset;
++        data.frame_type   = f->frame_hdr->frame_type;
++        data.width        = f->cur.p.w;
++        data.height       = f->cur.p.h;
++        // f->bw / f->bh are the 4x4 grid dims (== rf->iw4 / ih4); always report
++        // them so intra frames still produce a correctly-sized (empty) grid.
++        data.blk_w      = f->bw;
++        data.blk_h      = f->bh;
++        data.blk_stride = f->bw;
++        data.blocks     = (IS_INTER_OR_SWITCH(f->frame_hdr) && f->inspect_r)
++                          ? f->inspect_r : NULL;
++        for (int i = 0; i < 7; i++) {
++            data.refidx[i] = f->frame_hdr->refidx[i];
++            data.refpoc[i] = f->refpoc[i];
++        }
++        c->inspect_cb(c->inspect_cookie, &data);
++    }
++#endif
++
+     if (c->n_fc > 1 && retval && f->frame_thread.cf) {
+         memset(f->frame_thread.cf, 0,
+                (size_t)f->frame_thread.cf_sz * 128 * 128 / 2);
+@@ -3274,6 +3320,12 @@ void dav1d_decode_frame_exit(Dav1dFrameContext *const f, int retval) {
+     dav1d_ref_dec(&f->cur_segmap_ref);
+     dav1d_ref_dec(&f->prev_segmap_ref);
+     dav1d_ref_dec(&f->mvs_ref);
++#if CONFIG_INSPECTION
++    if (f->inspect_r) {
++        dav1d_free_aligned(f->inspect_r);
++        f->inspect_r = NULL;
++    }
++#endif
+     dav1d_ref_dec(&f->seq_hdr_ref);
+     dav1d_ref_dec(&f->frame_hdr_ref);
+ 
+@@ -3373,6 +3425,12 @@ int dav1d_submit_frame(Dav1dContext *const c) {
+         f = c->fc;
+     }
+ 
++#if CONFIG_INSPECTION
++    // AV1-Optical-Flow: stamp a decode-order index here (main thread, in order)
++    // so frames completing out of order under frame threading can be reordered.
++    f->inspect_seq = c->inspect_frame_seq++;
++#endif
++
+     f->seq_hdr = c->seq_hdr;
+     f->seq_hdr_ref = c->seq_hdr_ref;
+     dav1d_ref_inc(f->seq_hdr_ref);
+@@ -3576,6 +3634,19 @@ int dav1d_submit_frame(Dav1dContext *const c) {
+             goto error;
+         }
+         f->mvs = f->mvs_ref->data;
++#if CONFIG_INSPECTION
++        // AV1-Optical-Flow: full-frame 4x4 spatial block grid, harvested per
++        // sbrow during decode (see dav1d_refmvs_save_inspect). Inter frames only.
++        if (c->inspect_cb && IS_INTER_OR_SWITCH(f->frame_hdr)) {
++            const size_t r_sz = sizeof(*f->inspect_r) * f->bw * f->bh;
++            f->inspect_r = dav1d_alloc_aligned(ALLOC_REFMVS, r_sz, 64);
++            if (!f->inspect_r) {
++                res = DAV1D_ERR(ENOMEM);
++                goto error;
++            }
++            memset(f->inspect_r, 0, r_sz);
++        }
++#endif
+         if (!f->frame_hdr->allow_intrabc) {
+             for (int i = 0; i < 7; i++)
+                 f->refpoc[i] = f->refp[i].p.frame_hdr->frame_offset;
+diff --git a/src/internal.h b/src/internal.h
+index b1770edb..58de509a 100644
+--- a/src/internal.h
++++ b/src/internal.h
+@@ -189,6 +189,9 @@ struct Dav1dContext {
+     int output_invisible_frames;
+     enum Dav1dInloopFilterType inloop_filters;
+     enum Dav1dDecodeFrameType decode_frame_type;
++    void *inspect_cookie; // AV1-Optical-Flow inspection patch
++    void (*inspect_cb)(void *cookie, const Dav1dInspectData *data);
++    unsigned inspect_frame_seq; // monotonic decode-order counter
+     int drain;
+     enum PictureFlags frame_flags;
+     enum Dav1dEventFlags event_flags;
+@@ -223,6 +226,10 @@ struct Dav1dFrameContext {
+     Dav1dRef *mvs_ref;
+     refmvs_temporal_block *mvs, *ref_mvs[7];
+     Dav1dRef *ref_mvs_ref[7];
++#if CONFIG_INSPECTION
++    refmvs_block *inspect_r; // AV1-Optical-Flow: full-frame 4x4 block grid harvest
++    unsigned inspect_seq;    // decode-order index stamped at submit time
++#endif
+     Dav1dRef *cur_segmap_ref, *prev_segmap_ref;
+     uint8_t *cur_segmap;
+     const uint8_t *prev_segmap;
+diff --git a/src/lib.c b/src/lib.c
+index 4f52f341..0a212186 100644
+--- a/src/lib.c
++++ b/src/lib.c
+@@ -84,6 +84,10 @@ COLD void dav1d_default_settings(Dav1dSettings *const s) {
+     s->output_invisible_frames = 0;
+     s->inloop_filters = DAV1D_INLOOPFILTER_ALL;
+     s->decode_frame_type = DAV1D_DECODEFRAMETYPE_ALL;
++#if CONFIG_INSPECTION
++    s->inspect_cookie = NULL;
++    s->inspect_cb = NULL;
++#endif
+ }
+ 
+ static void close_internal(Dav1dContext **const c_out, int flush);
+@@ -176,6 +180,10 @@ COLD int dav1d_open(Dav1dContext **const c_out, const Dav1dSettings *const s) {
+     c->output_invisible_frames = s->output_invisible_frames;
+     c->inloop_filters = s->inloop_filters;
+     c->decode_frame_type = s->decode_frame_type;
++#if CONFIG_INSPECTION
++    c->inspect_cookie = s->inspect_cookie;
++    c->inspect_cb = s->inspect_cb;
++#endif
+ 
+     dav1d_data_props_set_defaults(&c->cached_error_props);
+ 
+diff --git a/src/refmvs.h b/src/refmvs.h
+index 9e0ed747..5cabbfa3 100644
+--- a/src/refmvs.h
++++ b/src/refmvs.h
+@@ -158,6 +158,30 @@ static inline void dav1d_refmvs_save_tmvs(const Dav1dRefmvsDSPContext *const dsp
+                    col_end8, row_end8, col_start8, row_start8);
+ }
+ 
++#if CONFIG_INSPECTION
++// AV1-Optical-Flow: copy one tile/sbrow's full-resolution 4x4 spatial blocks
++// out of the (transient) refmvs prediction window into a persistent full-frame
++// grid, before the window is overwritten by the next sbrow. Coordinates are in
++// 4-pixel units; the row pointer `(y & 31) + 5` mirrors the splat_mv() writes in
++// decode.c. Single-thread (n_tc == 1) decode path only.
++static inline void dav1d_refmvs_save_inspect(const refmvs_tile *const rt,
++                                             refmvs_block *const dst,
++                                             const ptrdiff_t dst_stride,
++                                             const int col_start4, int col_end4,
++                                             const int row_start4, int row_end4)
++{
++    const refmvs_frame *const rf = rt->rf;
++    row_end4 = imin(row_end4, rf->ih4);
++    col_end4 = imin(col_end4, rf->iw4);
++    for (int y = row_start4; y < row_end4; y++) {
++        const refmvs_block *const src = rt->r[(y & 31) + 5];
++        refmvs_block *const drow = &dst[y * dst_stride];
++        for (int x = col_start4; x < col_end4; x++)
++            drow[x] = src[x];
++    }
++}
++#endif
++
+ // initialize tile boundaries and refmvs_block pointers for one tile/sbrow
+ void dav1d_refmvs_tile_sbrow_init(refmvs_tile *rt, const refmvs_frame *rf,
+                                   int tile_col_start4, int tile_col_end4,

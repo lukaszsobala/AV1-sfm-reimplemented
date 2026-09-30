@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+third_party/build/
+data/
+runs/
+*.ivf
+*.db
