@@ -104,11 +104,17 @@ def score_database(
     settings: RansacSettings | None = None,
     max_pairs: int | None = None,
     num_threads: int | None = None,
+    checkpoint: str | Path | None = None,
 ) -> tuple[list[PairScore], dict]:
     """Score the raw matches of every pair in a COLMAP database (any method).
 
     Pairs are scored in parallel threads (pycolmap releases the GIL); each pair
     uses a fixed RANSAC seed, so results do not depend on scheduling.
+
+    With `checkpoint`, each finished pair is appended to that JSON-lines file
+    and pairs already in it are not scored again, so an interrupted run resumes.
+    The first line records the settings; a file written with other settings is
+    discarded.
     """
     settings = settings or RansacSettings()
     with pycolmap.Database.open(db_path) as db:
@@ -132,8 +138,37 @@ def score_database(
             (a.name, b.name),
         )
 
-    with ThreadPoolExecutor(num_threads or os.cpu_count()) as pool:
-        scores = list(pool.map(job, order))
+    done: dict[int, PairScore] = {}
+    log = None
+    if checkpoint is not None:
+        checkpoint = Path(checkpoint)
+        header = json.dumps({"settings": _jsonable(asdict(settings))})
+        lines = checkpoint.read_text().splitlines() if checkpoint.exists() else []
+        kept = [header]
+        if lines and lines[0] == header:
+            by_name = {im.name: i for i, im in imgs.items()}
+            for line in lines[1:]:
+                try:
+                    s = PairScore(**json.loads(line))
+                except ValueError, TypeError:
+                    continue  # truncated last line of a killed run
+                pid = pycolmap.image_pair_to_pair_id(by_name[s.image1], by_name[s.image2])
+                done[int(pid)] = s
+                kept.append(line)
+        checkpoint.write_text("".join(f"{line}\n" for line in kept))
+        log = checkpoint.open("a")
+    todo = [k for k in order if int(pair_ids[k]) not in done]
+    try:
+        with ThreadPoolExecutor(num_threads or os.cpu_count()) as pool:
+            for k, s in zip(todo, pool.map(job, todo), strict=True):
+                done[int(pair_ids[k])] = s
+                if log is not None:
+                    log.write(json.dumps(s.asdict()) + "\n")
+                    log.flush()
+    finally:
+        if log is not None:
+            log.close()
+    scores = [done[int(pair_ids[k])] for k in order]
     return scores, summarize(scores)
 
 

@@ -157,11 +157,15 @@ def main(argv: list[str] | None = None) -> None:
         print(text)
 
     elif a.cmd == "score":
-        scores, summary = score_database(a.database, RansacSettings(repeats=a.repeats), a.max_pairs)
+        ckpt = a.out.with_suffix(".partial.jsonl") if a.out else None
+        scores, summary = score_database(
+            a.database, RansacSettings(repeats=a.repeats), a.max_pairs, checkpoint=ckpt
+        )
         if a.out:
             a.out.write_text(
                 json.dumps({"summary": summary, "pairs": [s.asdict() for s in scores]}, indent=1)
             )
+            ckpt.unlink(missing_ok=True)
         print(json.dumps(summary, indent=2))
 
     elif a.cmd == "encoders":

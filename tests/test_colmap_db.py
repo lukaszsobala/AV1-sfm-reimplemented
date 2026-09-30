@@ -1,3 +1,5 @@
+import json
+
 import cv2
 import numpy as np
 import pycolmap
@@ -70,3 +72,34 @@ def test_pairs_below_min_matches_are_skipped(image_dir, tmp_path):
     g = graph_with_homography(n_pts=10, outliers=0)
     stats = write_match_graph(tmp_path / "db.db", {i: ids[n] for i, n in enumerate(names)}, g)
     assert stats["pairs"] == 0
+
+
+def test_score_database_checkpoint_resumes(image_dir, tmp_path):
+    from av1sfm.geometry import RansacSettings
+    from av1sfm.pipeline import score_database
+
+    names = [f"{i:03d}.png" for i in range(3)]
+    ids = create_database(tmp_path / "db.db", image_dir, names)
+    write_match_graph(
+        tmp_path / "db.db",
+        {i: ids[n] for i, n in enumerate(names)},
+        graph_with_homography(),
+        two_view="trust",
+    )
+    ckpt = tmp_path / "score.partial.jsonl"
+    full, _ = score_database(tmp_path / "db.db", checkpoint=ckpt)
+    lines = ckpt.read_text().splitlines()
+    assert len(lines) == 4  # settings header + 3 pairs
+
+    # Simulate a killed run: one pair done, a truncated line, then resume.
+    first = json.loads(lines[1])
+    first["num_inliers"] = -1  # marker: must be reused, not recomputed
+    ckpt.write_text(lines[0] + "\n" + json.dumps(first) + '\n{"image1": "00')
+    resumed, _ = score_database(tmp_path / "db.db", checkpoint=ckpt)
+    assert [(s.image1, s.image2) for s in resumed] == [(s.image1, s.image2) for s in full]
+    assert sum(s.num_inliers == -1 for s in resumed) == 1
+    assert len(ckpt.read_text().splitlines()) == 4
+
+    # Different settings discard the checkpoint.
+    again, _ = score_database(tmp_path / "db.db", RansacSettings(repeats=2), checkpoint=ckpt)
+    assert all(s.num_inliers >= 0 for s in again)
