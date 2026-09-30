@@ -15,6 +15,9 @@ METHODS = [
     ("mv", "AV1 MV, libaom (COLMAP verification)"),
     ("mv_trust", "AV1 MV, libaom (MVs trusted, no verification)"),
     ("mv_svt", "AV1 MV, SVT-AV1 (COLMAP verification)"),
+    ("mv_qsv", "AV1 MV, Intel QSV (COLMAP verification)"),
+    ("mv_vaapi", "AV1 MV, VA-API (COLMAP verification)"),
+    ("mv_vulkan", "AV1 MV, Vulkan Video (COLMAP verification)"),
     ("sift_seq", "SIFT sequential (overlap 10)"),
     ("sift_exh", "SIFT exhaustive"),
 ]

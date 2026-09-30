@@ -155,6 +155,14 @@ bash eval/run_colmap_datasets.sh    # fetches Gerrard Hall and Person Hall, pair
 SFM=1 bash eval/run_colmap_datasets.sh   # ... plus incremental mapping
 ```
 
+Hardware encoders are added as extra methods (`mv_qsv`, `mv_vaapi`,
+`mv_vulkan`); `ONLY` restricts the run to some methods and `RUN=` drops the
+`uv run` prefix inside an active virtualenv:
+
+```bash
+RUN= HW="qsv vaapi" ONLY="mv mv_qsv mv_vaapi" SETS=117 bash eval/run_kitti.sh
+```
+
 Gerrard Hall and Person Hall come from the COLMAP release assets
 (`https://github.com/colmap/colmap/releases/download/3.11.1/gerrard-hall.zip`,
 `person-hall.zip` plus `person-hall.z01`). As in the paper, a subset of
