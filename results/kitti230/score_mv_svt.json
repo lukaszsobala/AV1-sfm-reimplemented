@@ -1,0 +1,11 @@
+{
+ "summary": {
+  "pairs": 2025,
+  "matches_total": 1471541,
+  "inliers_total": 1435111,
+  "inlier_ratio_mean": 0.9380698995802014,
+  "inlier_ratio_pooled": 0.9752436391510668,
+  "sampson_px_median_of_pairs": 0.49495209747299707,
+  "frac_E": 1.0
+ }
+}

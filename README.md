@@ -130,7 +130,103 @@ mapping with identical settings.
 
 ## Results
 
-RESULTS_PLACEHOLDER
+KITTI odometry sequence 00, left colour camera (1241×376), produced by
+`bash eval/run_kitti.sh` on a 4-core x86 cloud VM **without a GPU**, so SIFT
+extraction and matching ran on the CPU. Software: FFmpeg n9.0.2, libaom 3.8.2,
+SVT-AV1 4.2.0, pycolmap 4.2.1, Python 3.14.7. Per-run JSON summaries are in
+[`results/`](results/). Gerrard Hall and Person Hall are not included: their
+download host was blocked in the development environment.
+
+How to read the tables:
+
+- **Pre-stage** is everything before mapping, excluding encoding, which is
+  listed separately. For MVs that is decode + tracks + database (+ COLMAP
+  verification); for SIFT it is extraction + matching + verification.
+  **Avg CPU %**: 100 % = one core.
+- **Inlier ratio** and **median Sampson error** come from identical E/H
+  LO-RANSAC scoring of each method's *raw* matches (max_error 4 px,
+  min_inlier_ratio 0.25, 10 000 trials).
+- **SfM** uses identical mapper settings for all methods, with KITTI's
+  forward-motion initialisation settings (ASSUMPTIONS.md R5). The primary
+  table fixes the shared SIMPLE_RADIAL camera at the KITTI calibration. With
+  COLMAP's default intrinsics refinement (second table) every MV database
+  fails: the first two-view bundle adjustment on an adjacent-frame initial
+  pair drives the distortion to |k| ≫ 1, and COLMAP then stops registering
+  images.
+- The trusted-MV variant has no scoring row, because its raw matches are the
+  same as the verified libaom row's.
+
+### KITTI 00, frames 0–116
+
+| Method | Pre-stage wall (s) | Avg CPU % | Encode (s) | Keypoints / img | Raw matches / img | Verified matches / img | Scored pairs | Inlier ratio | Median Sampson (px) |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| AV1 MV, libaom (COLMAP verification) | 123.0 | 366 | 8.2 | 13,915 | 234,594 | 230,615 | 5,044 | 0.972 | 0.554 |
+| AV1 MV, libaom (MVs trusted, no verification) | 10.8 | 104 | – | 13,915 | 234,594 | 234,594 | – | – | – |
+| AV1 MV, SVT-AV1 (COLMAP verification) | 10.9 | 318 | 1.9 | 3,510 | 14,267 | 14,036 | 975 | 0.978 | 0.460 |
+| SIFT sequential (overlap 10) | 58.5 | 345 | – | 5,117 | 17,218 | 16,908 | 1,115 | 0.976 | 0.162 |
+| SIFT exhaustive | 218.1 | 395 | – | 5,117 | 23,932 | 21,664 | 6,713 | 0.905 | 0.245 |
+
+SfM, intrinsics fixed at calibration:
+
+| Method | Registered | 3D points | Reproj. error (px) | Mean track length | Mapper wall (s) | Final global BA (s) |
+|---|---:|---:|---:|---:|---:|---:|
+| AV1 MV, libaom (COLMAP verification) | 117/117 | 99,499 | 0.901 | 11.07 | 827.6 | 23.0 |
+| AV1 MV, libaom (MVs trusted, no verification) | 117/117 | 101,001 | 0.903 | 10.93 | 923.8 | 18.6 |
+| AV1 MV, SVT-AV1 (COLMAP verification) | 116/117 | 59,992 | 0.671 | 4.15 | 219.9 | 4.4 |
+| SIFT sequential (overlap 10) | 117/117 | 35,055 | 0.379 | 7.38 | 74.7 | 3.7 |
+| SIFT exhaustive | 117/117 | 36,812 | 0.391 | 7.47 | 117.2 | 6.1 |
+
+SfM, COLMAP default intrinsics refinement:
+
+| Method | Registered | 3D points | Reproj. error (px) | Mean track length | Mapper wall (s) | Final global BA (s) |
+|---|---:|---:|---:|---:|---:|---:|
+| AV1 MV, libaom (COLMAP verification) | 2/117 | 17,804 | 0.441 | 2.00 | 14.9 | 3.6 |
+| AV1 MV, libaom (MVs trusted, no verification) | 2/117 | 18,873 | 0.323 | 2.00 | 16.0 | 3.9 |
+| AV1 MV, SVT-AV1 (COLMAP verification) | 2/117 | 8,883 | 0.260 | 2.00 | 1.7 | 1.1 |
+| SIFT sequential (overlap 10) | 117/117 | 35,034 | 0.374 | 7.39 | 88.8 | 4.8 |
+| SIFT exhaustive | 117/117 | 36,799 | 0.385 | 7.46 | 132.2 | 7.5 |
+
+### KITTI 00, frames 0–229
+
+| Method | Pre-stage wall (s) | Avg CPU % | Encode (s) | Keypoints / img | Raw matches / img | Verified matches / img | Scored pairs | Inlier ratio | Median Sampson (px) |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| AV1 MV, libaom (COLMAP verification) | 249.7 | 371 | 16.8 | 11,864 | 234,516 | 229,065 | 10,823 | 0.970 | 0.560 |
+| AV1 MV, libaom (MVs trusted, no verification) | 22.6 | 104 | – | 11,864 | 234,516 | 234,516 | – | – | – |
+| AV1 MV, SVT-AV1 (COLMAP verification) | 20.2 | 311 | 3.6 | 2,821 | 12,796 | 12,545 | 2,025 | 0.975 | 0.495 |
+| SIFT sequential (overlap 10) | 109.5 | 347 | – | 4,831 | 15,380 | 15,085 | 2,245 | 0.977 | 0.154 |
+| SIFT exhaustive | 874.6 | 396 | – | 4,831 | 23,966 | 20,030 | 23,712 | 0.868 | 0.247 |
+
+
+### Findings
+
+- **Density.** libaom MVs give 2.7× more keypoints and 10–14× more raw matches
+  per image than SIFT, and track propagation yields matches between frames up
+  to 90 apart.
+- **Speed.** Without COLMAP verification the MV pre-stage takes 10.8 s for 117
+  frames on one core (+8.2 s libaom encode, or 1.9 s with SVT-AV1), against
+  58.5 s (SIFT sequential) and 218 s (SIFT exhaustive) on four cores.
+  Verifying 13.7 M MV matches with COLMAP costs 123 s, which dominates.
+- **Precision.** Inlier ratios are the same as SIFT sequential (0.97–0.98),
+  but the median Sampson error is 0.55 px against 0.16 px (sequential) and
+  0.25 px (exhaustive). Block-level, quarter-pel MVs are coarser than SIFT
+  keypoints.
+- **SfM (117 frames).** MVs reconstruct all 117 frames with 99.5 k points at
+  0.90 px, against about 35–37 k points at 0.38–0.39 px for SIFT. This matches
+  the paper's qualitative result (many more points, higher reprojection
+  error), but the paper reports 0.46–0.62 M points at 0.51–0.53 px, against
+  SIFT-sequential's 55 k at 0.30 px. Possible reasons: a different scene (the
+  paper's 117-frame clip is not KITTI), track splitting, fixed intrinsics, and
+  details in ASSUMPTIONS.md that have not yet been checked against the paper.
+  Incremental mapping is much slower on the MV databases (828 s vs 75 s),
+  because bundle adjustment scales with the 1.6 M observations.
+- **SVT-AV1** encodes 4.3× faster than libaom, but its low-delay RTC MVs are
+  less consistent: 31 % of track steps fail the cosine test, against 7 % for
+  libaom. It ends with a quarter of the keypoints and 60 k points at 0.67 px
+  (116/117 registered).
+- **230 frames.** MV matching scales linearly (250 s with verification, 23 s
+  without). SIFT exhaustive grows quadratically (875 s) and its inlier ratio
+  drops to 0.87.
+
 
 ## Tests
 

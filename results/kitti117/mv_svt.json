@@ -1,0 +1,107 @@
+{
+  "method": "av1-mv",
+  "config": {
+    "track": {
+      "eps": 0.1,
+      "tau": 2.0,
+      "min_length": 3,
+      "on_violation": "split",
+      "skip_zero": true,
+      "prev_only": false
+    },
+    "encode": {
+      "encoder": "svtav1",
+      "crf": 32,
+      "qp": 128,
+      "usage": "realtime",
+      "cpu_used": 6,
+      "svt_preset": 10,
+      "svt_params": "",
+      "hw_device": null,
+      "threads": 0,
+      "fps": 10
+    },
+    "camera": {
+      "model": "SIMPLE_RADIAL",
+      "params": [
+        718.856,
+        607.1928,
+        185.2157,
+        0.0
+      ]
+    },
+    "max_pair_gap": null,
+    "two_view": "verify",
+    "decoder_threads": 0
+  },
+  "timings": {
+    "encode": {
+      "wall_s": 1.867,
+      "cpu_s": 5.06,
+      "cpu_percent": 271.0
+    },
+    "extract": {
+      "wall_s": 0.549,
+      "cpu_s": 0.98,
+      "cpu_percent": 178.5
+    },
+    "tracks": {
+      "wall_s": 0.959,
+      "cpu_s": 0.96,
+      "cpu_percent": 100.1
+    },
+    "database": {
+      "wall_s": 9.395,
+      "cpu_s": 32.7,
+      "cpu_percent": 348.1
+    }
+  },
+  "tracks": {
+    "seeds": 87058,
+    "raw_tracks": 233380,
+    "cosine_violations": 146322,
+    "kept_tracks": 96106,
+    "observations": 410676,
+    "mean_length": 4.273156722785258,
+    "max_length": 18
+  },
+  "keypoints_per_image": 3540.310344827586,
+  "database": {
+    "pairs": 975,
+    "raw_matches": 834644,
+    "inlier_pairs": 975,
+    "inlier_matches": 821103
+  },
+  "num_images": 117,
+  "ffmpeg_command": [
+    "/home/user/AV1-sfm-reimplemented/third_party/build/media/bin/ffmpeg",
+    "-hide_banner",
+    "-loglevel",
+    "error",
+    "-y",
+    "-framerate",
+    "10",
+    "-i",
+    "/tmp/av1sfm_seq_sn6w3_17/%06d.png",
+    "-vf",
+    "format=yuv420p",
+    "-c:v",
+    "libsvtav1",
+    "-preset",
+    "10",
+    "-crf",
+    "32",
+    "-svtav1-params",
+    "pred-struct=1:rtc=1:keyint=-1",
+    "-f",
+    "ivf",
+    "runs/kitti117/clip_svt.ivf"
+  ],
+  "matches": {
+    "num_images": 117,
+    "keypoints_per_image": 3510.051282051282,
+    "raw_matches_per_image": 14267.418803418803,
+    "verified_matches_per_image": 14035.948717948719,
+    "verified_pairs": 975
+  }
+}

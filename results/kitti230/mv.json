@@ -1,0 +1,119 @@
+{
+  "method": "av1-mv",
+  "config": {
+    "track": {
+      "eps": 0.1,
+      "tau": 2.0,
+      "min_length": 3,
+      "on_violation": "split",
+      "skip_zero": true,
+      "prev_only": false
+    },
+    "encode": {
+      "encoder": "libaom",
+      "crf": 32,
+      "qp": 128,
+      "usage": "realtime",
+      "cpu_used": 6,
+      "svt_preset": 10,
+      "svt_params": "",
+      "hw_device": null,
+      "threads": 0,
+      "fps": 10
+    },
+    "camera": {
+      "model": "SIMPLE_RADIAL",
+      "params": [
+        718.856,
+        607.1928,
+        185.2157,
+        0.0
+      ]
+    },
+    "max_pair_gap": null,
+    "two_view": "verify",
+    "decoder_threads": 0
+  },
+  "timings": {
+    "encode": {
+      "wall_s": 16.78,
+      "cpu_s": 46.39,
+      "cpu_percent": 276.5
+    },
+    "extract": {
+      "wall_s": 1.522,
+      "cpu_s": 2.42,
+      "cpu_percent": 159.0
+    },
+    "tracks": {
+      "wall_s": 17.427,
+      "cpu_s": 17.42,
+      "cpu_percent": 100.0
+    },
+    "database": {
+      "wall_s": 230.732,
+      "cpu_s": 907.31,
+      "cpu_percent": 393.2
+    }
+  },
+  "tracks": {
+    "seeds": 151961,
+    "raw_tracks": 357446,
+    "cosine_violations": 205485,
+    "kept_tracks": 247079,
+    "observations": 2728606,
+    "mean_length": 11.043455736829111,
+    "max_length": 103
+  },
+  "keypoints_per_image": 11863.504347826087,
+  "database": {
+    "pairs": 10823,
+    "raw_matches": 26969345,
+    "inlier_pairs": 10823,
+    "inlier_matches": 26342525
+  },
+  "num_images": 230,
+  "ffmpeg_command": [
+    "/home/user/AV1-sfm-reimplemented/third_party/build/media/bin/ffmpeg",
+    "-hide_banner",
+    "-loglevel",
+    "error",
+    "-y",
+    "-framerate",
+    "10",
+    "-i",
+    "/tmp/av1sfm_seq_oma6dd_3/%06d.png",
+    "-vf",
+    "format=yuv420p",
+    "-c:v",
+    "libaom-av1",
+    "-usage",
+    "realtime",
+    "-cpu-used",
+    "6",
+    "-lag-in-frames",
+    "0",
+    "-crf",
+    "32",
+    "-b:v",
+    "0",
+    "-row-mt",
+    "1",
+    "-threads",
+    "0",
+    "-g",
+    "231",
+    "-keyint_min",
+    "231",
+    "-f",
+    "ivf",
+    "runs/kitti230/clip.ivf"
+  ],
+  "matches": {
+    "num_images": 230,
+    "keypoints_per_image": 11863.504347826087,
+    "raw_matches_per_image": 234516.04347826086,
+    "verified_matches_per_image": 229065.4347826087,
+    "verified_pairs": 10823
+  }
+}

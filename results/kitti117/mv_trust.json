@@ -1,0 +1,79 @@
+{
+  "method": "av1-mv",
+  "config": {
+    "track": {
+      "eps": 0.1,
+      "tau": 2.0,
+      "min_length": 3,
+      "on_violation": "split",
+      "skip_zero": true,
+      "prev_only": false
+    },
+    "encode": {
+      "encoder": "libaom",
+      "crf": 32,
+      "qp": 128,
+      "usage": "realtime",
+      "cpu_used": 6,
+      "svt_preset": 10,
+      "svt_params": "",
+      "hw_device": null,
+      "threads": 0,
+      "fps": 10
+    },
+    "camera": {
+      "model": "SIMPLE_RADIAL",
+      "params": [
+        718.856,
+        607.1928,
+        185.2157,
+        0.0
+      ]
+    },
+    "max_pair_gap": null,
+    "two_view": "trust",
+    "decoder_threads": 0
+  },
+  "timings": {
+    "extract": {
+      "wall_s": 0.754,
+      "cpu_s": 1.23,
+      "cpu_percent": 163.1
+    },
+    "tracks": {
+      "wall_s": 7.712,
+      "cpu_s": 7.71,
+      "cpu_percent": 100.0
+    },
+    "database": {
+      "wall_s": 2.349,
+      "cpu_s": 2.35,
+      "cpu_percent": 100.1
+    }
+  },
+  "tracks": {
+    "seeds": 79223,
+    "raw_tracks": 228272,
+    "cosine_violations": 149049,
+    "kept_tracks": 163092,
+    "observations": 1628086,
+    "mean_length": 9.982623304637873,
+    "max_length": 91
+  },
+  "keypoints_per_image": 13915.264957264957,
+  "database": {
+    "pairs": 5044,
+    "raw_matches": 13723720,
+    "inlier_pairs": 5044,
+    "inlier_matches": 13723720
+  },
+  "num_images": 117,
+  "ffmpeg_command": null,
+  "matches": {
+    "num_images": 117,
+    "keypoints_per_image": 13915.264957264957,
+    "raw_matches_per_image": 234593.50427350428,
+    "verified_matches_per_image": 234593.50427350428,
+    "verified_pairs": 5044
+  }
+}

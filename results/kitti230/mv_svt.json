@@ -1,0 +1,107 @@
+{
+  "method": "av1-mv",
+  "config": {
+    "track": {
+      "eps": 0.1,
+      "tau": 2.0,
+      "min_length": 3,
+      "on_violation": "split",
+      "skip_zero": true,
+      "prev_only": false
+    },
+    "encode": {
+      "encoder": "svtav1",
+      "crf": 32,
+      "qp": 128,
+      "usage": "realtime",
+      "cpu_used": 6,
+      "svt_preset": 10,
+      "svt_params": "",
+      "hw_device": null,
+      "threads": 0,
+      "fps": 10
+    },
+    "camera": {
+      "model": "SIMPLE_RADIAL",
+      "params": [
+        718.856,
+        607.1928,
+        185.2157,
+        0.0
+      ]
+    },
+    "max_pair_gap": null,
+    "two_view": "verify",
+    "decoder_threads": 0
+  },
+  "timings": {
+    "encode": {
+      "wall_s": 3.579,
+      "cpu_s": 9.85,
+      "cpu_percent": 275.2
+    },
+    "extract": {
+      "wall_s": 1.168,
+      "cpu_s": 2.13,
+      "cpu_percent": 182.3
+    },
+    "tracks": {
+      "wall_s": 1.765,
+      "cpu_s": 1.75,
+      "cpu_percent": 99.2
+    },
+    "database": {
+      "wall_s": 17.265,
+      "cpu_s": 58.96,
+      "cpu_percent": 341.5
+    }
+  },
+  "tracks": {
+    "seeds": 167768,
+    "raw_tracks": 359450,
+    "cosine_violations": 191682,
+    "kept_tracks": 146139,
+    "observations": 648899,
+    "mean_length": 4.440286302766544,
+    "max_length": 21
+  },
+  "keypoints_per_image": 2833.6200873362445,
+  "database": {
+    "pairs": 2025,
+    "raw_matches": 1471541,
+    "inlier_pairs": 2025,
+    "inlier_matches": 1442720
+  },
+  "num_images": 230,
+  "ffmpeg_command": [
+    "/home/user/AV1-sfm-reimplemented/third_party/build/media/bin/ffmpeg",
+    "-hide_banner",
+    "-loglevel",
+    "error",
+    "-y",
+    "-framerate",
+    "10",
+    "-i",
+    "/tmp/av1sfm_seq_2snupz3q/%06d.png",
+    "-vf",
+    "format=yuv420p",
+    "-c:v",
+    "libsvtav1",
+    "-preset",
+    "10",
+    "-crf",
+    "32",
+    "-svtav1-params",
+    "pred-struct=1:rtc=1:keyint=-1",
+    "-f",
+    "ivf",
+    "runs/kitti230/clip_svt.ivf"
+  ],
+  "matches": {
+    "num_images": 230,
+    "keypoints_per_image": 2821.3,
+    "raw_matches_per_image": 12796.008695652174,
+    "verified_matches_per_image": 12545.391304347826,
+    "verified_pairs": 2025
+  }
+}
