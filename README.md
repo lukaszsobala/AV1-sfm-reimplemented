@@ -122,8 +122,17 @@ usually coarser than software, so check the MVs on a new encoder with
 ## Reproducing the evaluation
 
 ```bash
-bash eval/run_kitti.sh     # fetches KITTI 00 frames 0-229, runs everything, writes runs/results.md
+bash eval/run_kitti.sh              # fetches KITTI 00 frames 0-229, runs everything, writes runs/results.md
+bash eval/run_colmap_datasets.sh    # fetches Gerrard Hall and Person Hall, pairwise metrics (eps = 1)
+SFM=1 bash eval/run_colmap_datasets.sh   # ... plus incremental mapping
 ```
+
+Gerrard Hall and Person Hall come from the COLMAP release assets
+(`https://github.com/colmap/colmap/releases/download/3.11.1/gerrard-hall.zip`,
+`person-hall.zip` plus `person-hall.z01`). As in the paper, a subset of
+same-size, temporally adjacent images is used (Gerrard Hall: all 100; Person
+Hall: IMG_1015–IMG_1229, 215 images), resized to 1920×1280, with the cosine
+filter disabled (ε = 1). See ASSUMPTIONS.md D2.
 
 `eval/run_kitti.sh` holds every command behind the table below. Steps whose
 output already exists are skipped. For each set (117 and 230 frames) it runs:
