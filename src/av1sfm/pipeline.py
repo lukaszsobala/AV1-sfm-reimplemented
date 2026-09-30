@@ -80,6 +80,7 @@ def run_mv_matching(
         "database": db_stats,
         "num_images": len(images),
         "ffmpeg_command": ffmpeg_cmd,
+        "cpu_count": os.cpu_count(),
     }
 
 

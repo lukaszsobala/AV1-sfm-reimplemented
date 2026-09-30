@@ -71,3 +71,12 @@ def test_score_pair_degenerate_inputs():
     assert score_pair(cam, cam, p1, p2).model == "none"
     agg = summarize([score_pair(cam, cam, *scene()[1:])])
     assert agg["pairs"] == 1 and agg["frac_E"] == 1.0
+
+
+def test_repeats_and_squared_sampson():
+    cam, p1, p2 = scene(seed=3)
+    one = score_pair(cam, cam, p1, p2, RansacSettings(repeats=1))
+    rep = score_pair(cam, cam, p1, p2, RansacSettings(repeats=5))
+    assert rep.model == "E" and abs(rep.inlier_ratio - one.inlier_ratio) < 0.02
+    # the paper's SE is the squared Sampson distance (median of squares = square of median)
+    assert np.isclose(rep.median_sampson_sq_norm, rep.median_sampson_norm**2, rtol=0.05)

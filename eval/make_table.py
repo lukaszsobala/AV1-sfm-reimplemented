@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import sys
 from pathlib import Path
 
@@ -23,13 +24,17 @@ def load(p: Path) -> dict | None:
     return json.loads(p.read_text()) if p.exists() else None
 
 
-def prestage(stats: dict) -> tuple[float, float, float]:
-    """(wall s, cpu %, encode wall s) of the matching pre-stage, excluding encoding."""
-    t = {k: v for k, v in stats["timings"].items() if k != "encode"}
+def stages(stats: dict) -> tuple[float, float, float, int]:
+    """(pre-processing s, feature matching s, CPU % of one core, cores) as in the paper's
+    Table II: pre-processing = video encoding (MV) or SIFT extraction; feature
+    matching = everything else before mapping. CPU % covers both stages."""
+    t = stats["timings"]
+    pre_keys = {"encode"} if stats.get("method", "").startswith("av1") else {"extract"}
+    pre = sum(v["wall_s"] for k, v in t.items() if k in pre_keys) if pre_keys & t.keys() else None
+    match = sum(v["wall_s"] for k, v in t.items() if k not in pre_keys)
     wall = sum(v["wall_s"] for v in t.values())
-    cpu = sum(v["cpu_s"] for v in t.values())
-    enc = stats["timings"].get("encode", {}).get("wall_s", float("nan"))
-    return wall, 100 * cpu / wall if wall else 0.0, enc
+    cpu = 100 * sum(v["cpu_s"] for v in t.values()) / wall if wall else 0.0
+    return pre, match, cpu, stats.get("cpu_count") or os.cpu_count() or 1
 
 
 def fmt(x, nd=2) -> str:
@@ -40,30 +45,36 @@ def fmt(x, nd=2) -> str:
     return f"{x:,}"
 
 
+def sci(x) -> str:
+    return "–" if x is None or (isinstance(x, float) and math.isnan(x)) else f"{x:.2e}"
+
+
 def main(root: Path) -> None:
     for d in sorted(p for p in root.iterdir() if p.is_dir() and (p / "img").exists()):
         n_img = len(list((d / "img").iterdir()))
         print(f"## {d.name} ({n_img} frames)\n")
         print(
-            "| Method | Pre-stage wall (s) | Avg CPU % | Encode (s) | Keypoints / img "
-            "| Raw matches / img | Verified matches / img | Scored pairs | Inlier ratio "
-            "| Median Sampson (px) |"
+            "| Method | Pre-processing (s) | Feature matching (s) | CPU % (1 core = 100) "
+            "| CPU % of machine | Keypoints / img | Raw matches / img | Verified matches / img "
+            "| Scored pairs | Inlier ratio | Median Sampson (px) | Median SE (normalised²) |"
         )
-        print("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
+        print("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
         for key, label in METHODS:
             st = load(d / f"{key}.json")
             if not st:
                 continue
-            wall, cpu, enc = prestage(st)
+            pre, match, cpu, cores = stages(st)
             m = st["matches"]
             sc = load(d / f"score_{key}.json")
             s = sc["summary"] if sc else {}
             print(
-                f"| {label} | {fmt(wall, 1)} | {fmt(cpu, 0)} | {fmt(enc, 1)} "
+                f"| {label} | {fmt(pre, 1)} | {fmt(match, 1)} | {fmt(cpu, 0)} "
+                f"| {fmt(cpu / cores, 1)} "
                 f"| {fmt(m['keypoints_per_image'], 0)} | {fmt(m['raw_matches_per_image'], 0)} "
                 f"| {fmt(m['verified_matches_per_image'], 0)} | {fmt(s.get('pairs'))} "
                 f"| {fmt(s.get('inlier_ratio_pooled'), 3)} "
-                f"| {fmt(s.get('sampson_px_median_of_pairs'), 3)} |"
+                f"| {fmt(s.get('sampson_px_median_of_pairs'), 3)} "
+                f"| {sci(s.get('sampson_sq_norm_median_of_pairs'))} |"
             )
         for prefix, title in (
             ("map_", "intrinsics fixed at calibration"),

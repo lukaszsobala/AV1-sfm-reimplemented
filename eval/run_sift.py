@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 
 import pycolmap
@@ -73,6 +74,7 @@ def main() -> None:
             "cuda": pycolmap.has_cuda,
         },
         "timings": timer.asdict(),
+        "cpu_count": os.cpu_count(),
         "matches": matches_per_image(a.database),
     }
     text = json.dumps(stats, indent=2)

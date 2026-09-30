@@ -27,13 +27,14 @@ class RansacSettings:
     min_inlier_ratio: float = 0.25
     max_num_trials: int = 10000
     random_seed: int = 0
+    repeats: int = 1  # independent RANSAC runs (seeds random_seed ..); medians are reported
 
-    def options(self, scale: float = 1.0) -> pycolmap.RANSACOptions:
+    def options(self, scale: float = 1.0, seed_offset: int = 0) -> pycolmap.RANSACOptions:
         o = pycolmap.RANSACOptions()
         o.max_error = self.max_error * scale
         o.min_inlier_ratio = self.min_inlier_ratio
         o.max_num_trials = self.max_num_trials
-        o.random_seed = self.random_seed
+        o.random_seed = self.random_seed + seed_offset
         return o
 
 
@@ -42,11 +43,12 @@ class PairScore:
     image1: str
     image2: str
     num_matches: int
-    model: str  # "E", "H" or "none"
-    num_inliers: int
-    inlier_ratio: float
-    median_sampson_norm: float  # normalised units
-    median_sampson_px: float  # x mean focal length
+    model: str  # "E", "H" or "none" (most frequent over repeats)
+    num_inliers: int  # median over repeats
+    inlier_ratio: float  # median over repeats
+    median_sampson_norm: float  # Sampson distance, normalised units
+    median_sampson_px: float  # Sampson distance x mean focal length
+    median_sampson_sq_norm: float = float("nan")  # paper's SE (squared), normalised units
 
     def asdict(self) -> dict:
         return asdict(self)
@@ -111,30 +113,43 @@ def score_pair(
     settings: RansacSettings | None = None,
     names: tuple[str, str] = ("", ""),
 ) -> PairScore:
-    """Fit E and H to matched pixel coordinates and score the better model."""
+    """Fit E and H to matched pixel coordinates and score the better model.
+
+    With `settings.repeats > 1` the estimation is repeated with different
+    RANSAC seeds and the per-run metrics are summarised by their median, as in
+    the paper ("multiple independent runs ... median performance metrics").
+    """
     s = settings or RansacSettings()
     n = len(pts1)
-    f = 0.5 * (cam1.mean_focal_length() + cam2.mean_focal_length())
-    none = PairScore(names[0], names[1], n, "none", 0, 0.0, float("nan"), float("nan"))
+    nan = float("nan")
+    none = PairScore(names[0], names[1], n, "none", 0, 0.0, nan, nan, nan)
     if n < 5:
         return none
+    f = 0.5 * (cam1.mean_focal_length() + cam2.mean_focal_length())
     x1, x2 = normalize(cam1, pts1), normalize(cam2, pts2)
 
-    cands = []
-    e = pycolmap.estimate_essential_matrix(pts1, pts2, cam1, cam2, s.options())
-    if e is not None and e["num_inliers"] > 0:
-        mask = np.asarray(e["inlier_mask"], bool)
-        cands.append(("E", int(mask.sum()), sampson_epipolar(e["E"], x1[mask], x2[mask])))
-    if n >= 4:
-        h = pycolmap.estimate_homography_matrix(x1, x2, s.options(1.0 / f))
+    runs = []
+    for r in range(max(1, s.repeats)):
+        cands = []
+        e = pycolmap.estimate_essential_matrix(pts1, pts2, cam1, cam2, s.options(seed_offset=r))
+        if e is not None and e["num_inliers"] > 0:
+            mask = np.asarray(e["inlier_mask"], bool)
+            cands.append(("E", int(mask.sum()), sampson_epipolar(e["E"], x1[mask], x2[mask])))
+        h = pycolmap.estimate_homography_matrix(x1, x2, s.options(1.0 / f, seed_offset=r))
         if h is not None and h["num_inliers"] > 0:
             mask = np.asarray(h["inlier_mask"], bool)
             cands.append(("H", int(mask.sum()), sampson_homography(h["H"], x1[mask], x2[mask])))
-    if not cands:
+        if cands:
+            model, k, res = min(cands, key=lambda c: (-c[1], float(np.median(c[2]))))
+            runs.append((model, k, float(np.median(res)), float(np.median(res**2))))
+    if not runs:
         return none
-    model, k, res = min(cands, key=lambda c: (-c[1], float(np.median(c[2]))))
-    med = float(np.median(res))
-    return PairScore(names[0], names[1], n, model, k, k / n, med, med * f)
+    models = [r[0] for r in runs]
+    model = max(set(models), key=models.count)
+    k = int(np.median([r[1] for r in runs]))
+    med = float(np.median([r[2] for r in runs]))
+    med_sq = float(np.median([r[3] for r in runs]))
+    return PairScore(names[0], names[1], n, model, k, k / n, med, med * f, med_sq)
 
 
 def summarize(scores: list[PairScore]) -> dict:
@@ -153,5 +168,10 @@ def summarize(scores: list[PairScore]) -> dict:
         "inlier_ratio_mean": float(ratio.mean()),
         "inlier_ratio_pooled": tot_i / tot_m if tot_m else float("nan"),
         "sampson_px_median_of_pairs": float(np.median(med_px)) if len(med_px) else float("nan"),
+        "sampson_sq_norm_median_of_pairs": float(
+            np.median([s.median_sampson_sq_norm for s in sc if s.num_inliers > 0])
+        )
+        if len(med_px)
+        else float("nan"),
         "frac_E": float(np.mean([s.model == "E" for s in sc])),
     }
