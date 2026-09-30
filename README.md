@@ -5,14 +5,17 @@ An open reimplementation of
 > J. Zouein, H. Javidnia, F. Pitié, A. Kokaram, *Leveraging AV1 motion vectors
 > for Fast and Dense Feature Matching*, arXiv:2510.17434.
 
-The authors did not release code; this is written from the paper's method
-section. The motion vectors (MVs) that an AV1 encoder already computes are
-turned into dense keypoints, multi-frame tracks and COLMAP-compatible matches,
-so COLMAP's mapper can run with no SIFT extraction or matching at all.
+The authors did not release code. This implementation follows the paper and
+the description of its matcher in the group's follow-up, *Efficient dense
+matching for enhanced Gaussian splatting using AV1 motion vectors*
+(arXiv:2605.14629); both PDFs are in the repository root. The motion vectors
+(MVs) that an AV1 encoder already computes are turned into dense keypoints,
+multi-frame tracks and COLMAP-compatible matches, so COLMAP's mapper can run
+with no SIFT extraction or matching at all.
 
-**Read [ASSUMPTIONS.md](ASSUMPTIONS.md).** It lists every convention that was
-verified (MV sign, units, reference frames) and every choice the paper leaves
-open (τ, how tracks link, compound blocks, metric definitions).
+**Read [ASSUMPTIONS.md](ASSUMPTIONS.md).** Each item there is marked as
+confirmed by the paper, changed to match it, open (the paper is silent, so it
+is our choice, with evidence), or a deliberate deviation.
 
 ## Pipeline
 
@@ -48,7 +51,7 @@ sudo apt-get install -y build-essential meson ninja-build cmake nasm pkg-config 
 bash setup.sh                 # patched dav1d + shim into third_party/build, then `uv sync`
 bash scripts/build_ffmpeg.sh  # FFmpeg n9.0.2 + SVT-AV1 v4.2.0 + Vulkan + QSV (~15 min)
 uv run av1sfm encoders        # which AV1 encoders work on this machine
-uv run pytest                 # 54 tests; integration tests need ffmpeg and the dav1d build
+uv run pytest                 # 59 tests; integration tests need ffmpeg and the dav1d build
 ```
 
 `scripts/build_ffmpeg.sh` installs into `third_party/build/media`, and av1sfm
@@ -84,7 +87,9 @@ Main `match` options (defaults in brackets):
 | `--eps` [0.1] | cosine tolerance: require cos(v_nm, v_ml) ≥ 1 − ε; `--eps 1` disables the filter (use for image collections with large frame gaps). |
 | `--tau` [2.0] | skip the cosine test when either MV is shorter than τ px. |
 | `--min-length` [3] | minimum track length in frames. |
-| `--on-violation` [split] | `split` the track at a violation, or `drop` the whole track. |
+| `--on-violation` [cut] | on a cosine violation, `cut` (terminate) the track as in the paper, `split` it into two tracks, or `drop` it. |
+| `--seed` [all] | `all`: every block of every frame starts a track (paper); `uncovered`: only blocks no arriving track lands in. |
+| `--grid` [block] | keypoints per coded block, or per 4×4 unit of the zero-order-hold motion field (`cell`; very dense, see ASSUMPTIONS.md B1). |
 | `--prev-only` | use only MVs whose reference is the previous frame. |
 | `--max-pair-gap` | only emit matches between frames at most this far apart. |
 | `--two-view` [verify] | `verify`: COLMAP's geometric verification with the shared RANSAC settings; `trust`: all MV matches are stored as inliers. |
@@ -234,7 +239,7 @@ SfM, COLMAP default intrinsics refinement:
 
 - the cosine filter (`test_cosine.py`): thresholds, τ, ε = 1;
 - MV-to-correspondence geometry (`test_blocks.py`): block collapse, centres, references, compound blocks;
-- track building (`test_tracks.py`): propagation, seeding, splitting and dropping, gaps, triangular matches;
+- track building (`test_tracks.py`): propagation, seeding modes, cut/split/drop, 4×4 grid, gaps, triangular matches, match-count guard;
 - the COLMAP writer (`test_colmap_db.py`) and the Sampson formulas (`test_geometry.py`);
 - an end-to-end check on a real AV1 encode of a synthetic pan + zoom with known ground truth (`test_integration.py`).
 
