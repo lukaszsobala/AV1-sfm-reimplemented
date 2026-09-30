@@ -8,9 +8,10 @@ which `pycolmap.incremental_mapping` (or `colmap mapper` of the same version)
 runs without SIFT extraction or matching.
 
 Two-view geometries can be produced in two ways:
-  * "verify" (default): COLMAP's own two-view verification
-    (`pycolmap.estimate_two_view_geometry`) with the same options used for the
-    SIFT baselines, so every method goes through identical verification.
+  * "verify" (default): COLMAP's own multi-threaded geometric verification
+    (`pycolmap.geometric_verification`, the code path its matchers use) with
+    the same options as the SIFT baselines, so every method goes through
+    identical verification.
   * "trust": all raw matches are stored as inliers (config UNCALIBRATED),
     i.e. the MVs themselves are the verification.
 """
@@ -84,37 +85,31 @@ def write_match_graph(
     """
     verify_options = verify_options or two_view_options()
     stats = {"pairs": 0, "raw_matches": 0, "inlier_pairs": 0, "inlier_matches": 0}
-    with pycolmap.Database.open(db_path) as db:
-        cams = {c.camera_id: c for c in db.read_all_cameras()}
-        cam_of = {im.image_id: cams[im.camera_id] for im in db.read_all_images()}
-        with pycolmap.DatabaseTransaction(db):
-            for frame, kps in graph.keypoints.items():
-                if frame in image_ids:
-                    db.write_keypoints(image_ids[frame], np.ascontiguousarray(kps, np.float32))
-            for (fa, fb), m in graph.matches.items():
-                if fa not in image_ids or fb not in image_ids or len(m) < min_matches:
-                    continue
-                ia, ib = image_ids[fa], image_ids[fb]
-                m = np.ascontiguousarray(m, np.uint32)
-                if ia > ib:  # COLMAP stores pairs with image_id1 < image_id2
-                    ia, ib, m = ib, ia, np.ascontiguousarray(m[:, ::-1])
-                    fa, fb = fb, fa
-                db.write_matches(ia, ib, m)
-                stats["pairs"] += 1
-                stats["raw_matches"] += len(m)
-                if two_view == "trust":
-                    tvg = pycolmap.TwoViewGeometry()
-                    tvg.config = pycolmap.TwoViewGeometryConfiguration.UNCALIBRATED
-                    tvg.inlier_matches = m
-                else:
-                    tvg = pycolmap.estimate_two_view_geometry(
-                        cam_of[ia], graph.keypoints[fa].astype(np.float64),
-                        cam_of[ib], graph.keypoints[fb].astype(np.float64),
-                        m, verify_options,
-                    )  # fmt: skip
+    with pycolmap.Database.open(db_path) as db, pycolmap.DatabaseTransaction(db):
+        for frame, kps in graph.keypoints.items():
+            if frame in image_ids:
+                db.write_keypoints(image_ids[frame], np.ascontiguousarray(kps, np.float32))
+        for (fa, fb), m in graph.matches.items():
+            if fa not in image_ids or fb not in image_ids or len(m) < min_matches:
+                continue
+            ia, ib = image_ids[fa], image_ids[fb]
+            m = np.ascontiguousarray(m, np.uint32)
+            if ia > ib:  # COLMAP stores pairs with image_id1 < image_id2
+                ia, ib, m = ib, ia, np.ascontiguousarray(m[:, ::-1])
+            db.write_matches(ia, ib, m)
+            stats["pairs"] += 1
+            stats["raw_matches"] += len(m)
+            if two_view == "trust":
+                tvg = pycolmap.TwoViewGeometry()
+                tvg.config = pycolmap.TwoViewGeometryConfiguration.UNCALIBRATED
+                tvg.inlier_matches = m
                 db.write_two_view_geometry(ia, ib, tvg)
-                n_in = len(tvg.inlier_matches)
-                if n_in:
-                    stats["inlier_pairs"] += 1
-                    stats["inlier_matches"] += n_in
+    if two_view == "verify":
+        pycolmap.geometric_verification(
+            db_path, pycolmap.GeometricVerifierOptions(),
+            pycolmap.ExistingMatchedPairingOptions(), verify_options,
+        )  # fmt: skip
+    with pycolmap.Database.open(db_path) as db:
+        stats["inlier_pairs"] = db.num_verified_image_pairs()
+        stats["inlier_matches"] = db.num_inlier_matches()
     return stats
