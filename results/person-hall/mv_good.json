@@ -2,7 +2,7 @@
   "method": "av1-mv",
   "config": {
     "track": {
-      "eps": 0.1,
+      "eps": 1.0,
       "tau": 2.0,
       "min_length": 3,
       "on_violation": "cut",
@@ -15,7 +15,7 @@
       "encoder": "libaom",
       "crf": 32,
       "qp": 128,
-      "usage": "realtime",
+      "usage": "good",
       "cpu_used": 6,
       "svt_preset": 10,
       "svt_params": "",
@@ -26,10 +26,10 @@
     "camera": {
       "model": "SIMPLE_RADIAL",
       "params": [
-        718.856,
-        607.1928,
-        185.2157,
-        0.0
+        1312.810256,
+        960.0,
+        640.0,
+        -0.109344
       ]
     },
     "max_pair_gap": null,
@@ -38,43 +38,43 @@
   },
   "timings": {
     "encode": {
-      "wall_s": 10.509,
-      "cpu_s": 26.27,
-      "cpu_percent": 250.0
+      "wall_s": 193.542,
+      "cpu_s": 557.26,
+      "cpu_percent": 287.9
     },
     "extract": {
-      "wall_s": 0.851,
-      "cpu_s": 1.36,
-      "cpu_percent": 159.9
+      "wall_s": 10.88,
+      "cpu_s": 14.55,
+      "cpu_percent": 133.7
     },
     "tracks": {
-      "wall_s": 14.215,
-      "cpu_s": 14.21,
-      "cpu_percent": 100.0
+      "wall_s": 9.97,
+      "cpu_s": 9.98,
+      "cpu_percent": 100.1
     },
     "database": {
-      "wall_s": 174.28,
-      "cpu_s": 681.48,
-      "cpu_percent": 391.0
+      "wall_s": 129.17,
+      "cpu_s": 491.17,
+      "cpu_percent": 380.3
     }
   },
   "tracks": {
-    "seeds": 260945,
-    "raw_tracks": 260945,
-    "cosine_violations": 129382,
-    "kept_tracks": 215011,
-    "observations": 2428617,
-    "mean_length": 11.29531512341229,
-    "max_length": 92
+    "seeds": 950609,
+    "raw_tracks": 950609,
+    "cosine_violations": 0,
+    "kept_tracks": 557659,
+    "observations": 3430807,
+    "mean_length": 6.152159294479243,
+    "max_length": 30
   },
-  "keypoints_per_image": 20757.410256410258,
+  "keypoints_per_image": 15957.241860465116,
   "database": {
-    "pairs": 5171,
-    "raw_matches": 20547537,
-    "inlier_pairs": 5171,
-    "inlier_matches": 20115270
+    "pairs": 3193,
+    "raw_matches": 12659808,
+    "inlier_pairs": 3193,
+    "inlier_matches": 12001353
   },
-  "num_images": 117,
+  "num_images": 215,
   "ffmpeg_command": [
     "/home/user/AV1-sfm-reimplemented/third_party/build/media/bin/ffmpeg",
     "-hide_banner",
@@ -84,13 +84,13 @@
     "-framerate",
     "10",
     "-i",
-    "/tmp/av1sfm_seq_88stmn25/%06d.png",
+    "/tmp/av1sfm_seq_0v1qh968/%06d.jpg",
     "-vf",
     "format=yuv420p",
     "-c:v",
     "libaom-av1",
     "-usage",
-    "realtime",
+    "good",
     "-cpu-used",
     "6",
     "-lag-in-frames",
@@ -104,19 +104,19 @@
     "-threads",
     "0",
     "-g",
-    "118",
+    "216",
     "-keyint_min",
-    "118",
+    "216",
     "-f",
     "ivf",
-    "runs/kitti117/clip.ivf"
+    "runs/exp/ph_good.ivf"
   ],
   "cpu_count": 4,
   "matches": {
-    "num_images": 117,
-    "keypoints_per_image": 20757.410256410258,
-    "raw_matches_per_image": 351239.9487179487,
-    "verified_matches_per_image": 343850.76923076925,
-    "verified_pairs": 5171
+    "num_images": 215,
+    "keypoints_per_image": 15957.241860465116,
+    "raw_matches_per_image": 117765.65581395349,
+    "verified_matches_per_image": 111640.49302325581,
+    "verified_pairs": 3193
   }
 }

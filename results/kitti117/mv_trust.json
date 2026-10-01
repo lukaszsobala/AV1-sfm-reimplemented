@@ -5,7 +5,9 @@
       "eps": 0.1,
       "tau": 2.0,
       "min_length": 3,
-      "on_violation": "split",
+      "on_violation": "cut",
+      "grid": "block",
+      "seed": "all",
       "skip_zero": true,
       "prev_only": false
     },
@@ -36,44 +38,45 @@
   },
   "timings": {
     "extract": {
-      "wall_s": 0.754,
-      "cpu_s": 1.23,
-      "cpu_percent": 163.1
+      "wall_s": 0.815,
+      "cpu_s": 1.33,
+      "cpu_percent": 163.2
     },
     "tracks": {
-      "wall_s": 7.712,
-      "cpu_s": 7.71,
-      "cpu_percent": 100.0
+      "wall_s": 14.613,
+      "cpu_s": 14.6,
+      "cpu_percent": 99.9
     },
     "database": {
-      "wall_s": 2.349,
-      "cpu_s": 2.35,
-      "cpu_percent": 100.1
+      "wall_s": 4.51,
+      "cpu_s": 4.5,
+      "cpu_percent": 99.8
     }
   },
   "tracks": {
-    "seeds": 79223,
-    "raw_tracks": 228272,
-    "cosine_violations": 149049,
-    "kept_tracks": 163092,
-    "observations": 1628086,
-    "mean_length": 9.982623304637873,
-    "max_length": 91
+    "seeds": 260945,
+    "raw_tracks": 260945,
+    "cosine_violations": 129382,
+    "kept_tracks": 215011,
+    "observations": 2428617,
+    "mean_length": 11.29531512341229,
+    "max_length": 92
   },
-  "keypoints_per_image": 13915.264957264957,
+  "keypoints_per_image": 20757.410256410258,
   "database": {
-    "pairs": 5044,
-    "raw_matches": 13723720,
-    "inlier_pairs": 5044,
-    "inlier_matches": 13723720
+    "pairs": 5171,
+    "raw_matches": 20547537,
+    "inlier_pairs": 5171,
+    "inlier_matches": 20547537
   },
   "num_images": 117,
   "ffmpeg_command": null,
+  "cpu_count": 4,
   "matches": {
     "num_images": 117,
-    "keypoints_per_image": 13915.264957264957,
-    "raw_matches_per_image": 234593.50427350428,
-    "verified_matches_per_image": 234593.50427350428,
-    "verified_pairs": 5044
+    "keypoints_per_image": 20757.410256410258,
+    "raw_matches_per_image": 351239.9487179487,
+    "verified_matches_per_image": 351239.9487179487,
+    "verified_pairs": 5171
   }
 }

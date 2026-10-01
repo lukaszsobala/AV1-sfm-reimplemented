@@ -1,11 +1,13 @@
 {
  "summary": {
-  "pairs": 10823,
-  "matches_total": 26969345,
-  "inliers_total": 26151603,
-  "inlier_ratio_mean": 0.964243107131082,
-  "inlier_ratio_pooled": 0.969678833505226,
-  "sampson_px_median_of_pairs": 0.5595653731608858,
+  "pairs": 11306,
+  "matches_total": 49844755,
+  "inliers_total": 48386603,
+  "inlier_ratio_mean": 0.9658841880974139,
+  "inlier_ratio_pooled": 0.970746129657975,
+  "inlier_ratio_median_of_pairs": 0.9759036144578314,
+  "sampson_px_median_of_pairs": 0.599189881111671,
+  "sampson_sq_norm_median_of_pairs": 6.947765267021538e-07,
   "frac_E": 1.0
  }
 }

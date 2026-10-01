@@ -5,7 +5,9 @@
       "eps": 0.1,
       "tau": 2.0,
       "min_length": 3,
-      "on_violation": "split",
+      "on_violation": "cut",
+      "grid": "block",
+      "seed": "all",
       "skip_zero": true,
       "prev_only": false
     },
@@ -36,41 +38,41 @@
   },
   "timings": {
     "encode": {
-      "wall_s": 1.867,
-      "cpu_s": 5.06,
-      "cpu_percent": 271.0
+      "wall_s": 2.031,
+      "cpu_s": 5.44,
+      "cpu_percent": 267.9
     },
     "extract": {
-      "wall_s": 0.549,
-      "cpu_s": 0.98,
-      "cpu_percent": 178.5
+      "wall_s": 0.567,
+      "cpu_s": 1.02,
+      "cpu_percent": 179.8
     },
     "tracks": {
-      "wall_s": 0.959,
-      "cpu_s": 0.96,
-      "cpu_percent": 100.1
+      "wall_s": 0.605,
+      "cpu_s": 0.6,
+      "cpu_percent": 99.2
     },
     "database": {
-      "wall_s": 9.395,
-      "cpu_s": 32.7,
-      "cpu_percent": 348.1
+      "wall_s": 5.267,
+      "cpu_s": 16.15,
+      "cpu_percent": 306.6
     }
   },
   "tracks": {
-    "seeds": 87058,
-    "raw_tracks": 233380,
-    "cosine_violations": 146322,
-    "kept_tracks": 96106,
-    "observations": 410676,
-    "mean_length": 4.273156722785258,
+    "seeds": 129410,
+    "raw_tracks": 129410,
+    "cosine_violations": 44600,
+    "kept_tracks": 53473,
+    "observations": 213440,
+    "mean_length": 3.991547135937763,
     "max_length": 18
   },
-  "keypoints_per_image": 3540.310344827586,
+  "keypoints_per_image": 1840.0,
   "database": {
-    "pairs": 975,
-    "raw_matches": 834644,
-    "inlier_pairs": 975,
-    "inlier_matches": 821103
+    "pairs": 983,
+    "raw_matches": 377607,
+    "inlier_pairs": 983,
+    "inlier_matches": 362114
   },
   "num_images": 117,
   "ffmpeg_command": [
@@ -82,7 +84,7 @@
     "-framerate",
     "10",
     "-i",
-    "/tmp/av1sfm_seq_sn6w3_17/%06d.png",
+    "/tmp/av1sfm_seq_choezyg_/%06d.png",
     "-vf",
     "format=yuv420p",
     "-c:v",
@@ -97,11 +99,12 @@
     "ivf",
     "runs/kitti117/clip_svt.ivf"
   ],
+  "cpu_count": 4,
   "matches": {
     "num_images": 117,
-    "keypoints_per_image": 3510.051282051282,
-    "raw_matches_per_image": 14267.418803418803,
-    "verified_matches_per_image": 14035.948717948719,
-    "verified_pairs": 975
+    "keypoints_per_image": 1824.2735042735044,
+    "raw_matches_per_image": 6454.820512820513,
+    "verified_matches_per_image": 6189.982905982906,
+    "verified_pairs": 983
   }
 }

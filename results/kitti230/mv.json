@@ -5,7 +5,9 @@
       "eps": 0.1,
       "tau": 2.0,
       "min_length": 3,
-      "on_violation": "split",
+      "on_violation": "cut",
+      "grid": "block",
+      "seed": "all",
       "skip_zero": true,
       "prev_only": false
     },
@@ -36,41 +38,41 @@
   },
   "timings": {
     "encode": {
-      "wall_s": 16.78,
-      "cpu_s": 46.39,
-      "cpu_percent": 276.5
+      "wall_s": 17.166,
+      "cpu_s": 45.95,
+      "cpu_percent": 267.7
     },
     "extract": {
-      "wall_s": 1.522,
-      "cpu_s": 2.42,
-      "cpu_percent": 159.0
+      "wall_s": 1.501,
+      "cpu_s": 2.4,
+      "cpu_percent": 159.9
     },
     "tracks": {
-      "wall_s": 17.427,
-      "cpu_s": 17.42,
-      "cpu_percent": 100.0
+      "wall_s": 32.123,
+      "cpu_s": 32.1,
+      "cpu_percent": 99.9
     },
     "database": {
-      "wall_s": 230.732,
-      "cpu_s": 907.31,
-      "cpu_percent": 393.2
+      "wall_s": 448.879,
+      "cpu_s": 1774.59,
+      "cpu_percent": 395.3
     }
   },
   "tracks": {
-    "seeds": 151961,
-    "raw_tracks": 357446,
-    "cosine_violations": 205485,
-    "kept_tracks": 247079,
-    "observations": 2728606,
-    "mean_length": 11.043455736829111,
+    "seeds": 497818,
+    "raw_tracks": 497818,
+    "cosine_violations": 216200,
+    "kept_tracks": 404795,
+    "observations": 4993196,
+    "mean_length": 12.335122716436715,
     "max_length": 103
   },
-  "keypoints_per_image": 11863.504347826087,
+  "keypoints_per_image": 21709.547826086957,
   "database": {
-    "pairs": 10823,
-    "raw_matches": 26969345,
-    "inlier_pairs": 10823,
-    "inlier_matches": 26342525
+    "pairs": 11306,
+    "raw_matches": 49844755,
+    "inlier_pairs": 11306,
+    "inlier_matches": 48640974
   },
   "num_images": 230,
   "ffmpeg_command": [
@@ -82,7 +84,7 @@
     "-framerate",
     "10",
     "-i",
-    "/tmp/av1sfm_seq_oma6dd_3/%06d.png",
+    "/tmp/av1sfm_seq_glqfufo5/%06d.png",
     "-vf",
     "format=yuv420p",
     "-c:v",
@@ -109,11 +111,12 @@
     "ivf",
     "runs/kitti230/clip.ivf"
   ],
+  "cpu_count": 4,
   "matches": {
     "num_images": 230,
-    "keypoints_per_image": 11863.504347826087,
-    "raw_matches_per_image": 234516.04347826086,
-    "verified_matches_per_image": 229065.4347826087,
-    "verified_pairs": 10823
+    "keypoints_per_image": 21709.547826086957,
+    "raw_matches_per_image": 433432.652173913,
+    "verified_matches_per_image": 422964.9913043478,
+    "verified_pairs": 11306
   }
 }

@@ -2,7 +2,7 @@
   "method": "av1-mv",
   "config": {
     "track": {
-      "eps": 0.1,
+      "eps": 1.0,
       "tau": 2.0,
       "min_length": 3,
       "on_violation": "cut",
@@ -26,10 +26,10 @@
     "camera": {
       "model": "SIMPLE_RADIAL",
       "params": [
-        718.856,
-        607.1928,
-        185.2157,
-        0.0
+        1312.810256,
+        960.0,
+        640.0,
+        -0.109344
       ]
     },
     "max_pair_gap": null,
@@ -38,45 +38,45 @@
   },
   "timings": {
     "extract": {
-      "wall_s": 1.737,
-      "cpu_s": 2.82,
-      "cpu_percent": 162.4
+      "wall_s": 10.449,
+      "cpu_s": 14.29,
+      "cpu_percent": 136.8
     },
     "tracks": {
-      "wall_s": 32.149,
-      "cpu_s": 32.14,
+      "wall_s": 6.718,
+      "cpu_s": 6.72,
       "cpu_percent": 100.0
     },
     "database": {
-      "wall_s": 5.633,
-      "cpu_s": 5.57,
-      "cpu_percent": 98.9
+      "wall_s": 6.543,
+      "cpu_s": 6.54,
+      "cpu_percent": 100.0
     }
   },
   "tracks": {
-    "seeds": 497818,
-    "raw_tracks": 497818,
-    "cosine_violations": 216200,
-    "kept_tracks": 404795,
-    "observations": 4993196,
-    "mean_length": 12.335122716436715,
-    "max_length": 103
+    "seeds": 1397806,
+    "raw_tracks": 1397806,
+    "cosine_violations": 0,
+    "kept_tracks": 599768,
+    "observations": 2629933,
+    "mean_length": 4.384917167971616,
+    "max_length": 23
   },
-  "keypoints_per_image": 21709.547826086957,
+  "keypoints_per_image": 12232.246511627907,
   "database": {
-    "pairs": 11306,
-    "raw_matches": 49844755,
-    "inlier_pairs": 11306,
-    "inlier_matches": 49844755
+    "pairs": 3794,
+    "raw_matches": 5757960,
+    "inlier_pairs": 3794,
+    "inlier_matches": 5757960
   },
-  "num_images": 230,
+  "num_images": 215,
   "ffmpeg_command": null,
   "cpu_count": 4,
   "matches": {
-    "num_images": 230,
-    "keypoints_per_image": 21709.547826086957,
-    "raw_matches_per_image": 433432.652173913,
-    "verified_matches_per_image": 433432.652173913,
-    "verified_pairs": 11306
+    "num_images": 215,
+    "keypoints_per_image": 12232.246511627907,
+    "raw_matches_per_image": 53562.41860465116,
+    "verified_matches_per_image": 53562.41860465116,
+    "verified_pairs": 3794
   }
 }

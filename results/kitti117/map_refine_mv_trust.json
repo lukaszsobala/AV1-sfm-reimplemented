@@ -1,25 +1,26 @@
 {
   "timings": {
     "mapper": {
-      "wall_s": 15.988,
-      "cpu_s": 40.44,
-      "cpu_percent": 252.9
+      "wall_s": 1691.419,
+      "cpu_s": 3649.19,
+      "cpu_percent": 215.7
     }
   },
   "num_models": 1,
   "init_max_forward_motion": 1.0,
   "init_min_tri_angle": 4.0,
-  "registered_images": 2,
-  "points3D": 18873,
-  "mean_reprojection_error_px": 0.3227470018749053,
-  "mean_track_length": 2.0,
-  "mean_observations_per_image": 18873.0,
+  "fix_intrinsics": false,
+  "registered_images": 117,
+  "points3D": 204765,
+  "mean_reprojection_error_px": 0.8931046092016437,
+  "mean_track_length": 10.40323297438527,
+  "mean_observations_per_image": 18206.991452991453,
   "camera": [
-    1600.4027800539725,
+    693.0093791063309,
     607.1928,
     185.2157,
-    5522.662153069783
+    -0.003915953444200549
   ],
-  "final_global_ba_s": 3.924,
-  "mean_reprojection_error_after_ba_px": 0.29788660995752625
+  "final_global_ba_s": 62.966,
+  "mean_reprojection_error_after_ba_px": 0.8929494042419046
 }
