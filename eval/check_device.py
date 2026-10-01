@@ -173,14 +173,17 @@ def primitives(dev) -> None:
         "gelu": lambda t: torch.nn.functional.gelu(t[0]),
         "matmul (5000x256 @ 256x512)": lambda t: t[0].reshape(-1, 256) @ t[2],
         "cos / sin": lambda t: torch.cos(t[0]) + torch.sin(t[0]),
-        "einsum, transposed operand": lambda t: torch.einsum(
+        "softmax over 5000, then einsum (P^T)": lambda t: torch.einsum(
             "bhji, bhjd -> bhid", torch.softmax(t[3], -1).transpose(-2, -1), t[0]
         ),
         "transpose(-2, -1).contiguous() 5000²": lambda t: t[3].transpose(-2, -1).contiguous(),
-        "matmul, sum over 5000 (batched 4-D)": lambda t: torch.matmul(
+        "softmax over 5000, then matmul (4-D)": lambda t: torch.matmul(
             torch.softmax(t[3], -1), t[0]
         ),
-        "matmul, sum over 5000 (2-D)": lambda t: torch.softmax(t[3][0, 0], -1) @ t[0][0, 0],
+        "softmax over 5000, then matmul (2-D)": lambda t: (
+            torch.softmax(t[3][0, 0], -1) @ t[0][0, 0]
+        ),
+        "softmax over 5000": lambda t: torch.softmax(t[3], -1),
         "log_softmax over 5000": lambda t: torch.log_softmax(t[3], -1),
         "logsumexp over 5000": lambda t: torch.logsumexp(t[3], -1),
         "double_softmax_maxima (values)": lambda t: torch.from_numpy(
@@ -189,7 +192,7 @@ def primitives(dev) -> None:
         "max over 5000 (values)": lambda t: t[3].max(-1).values,
         "sum over 5000": lambda t: t[3].sum(-1),
         "add transposed (x + x^T)": lambda t: t[3] + t[3].transpose(-1, -2),
-        "matmul, sum over 1024 (2-D)": lambda t: (
+        "softmax over 1024, then matmul (2-D)": lambda t: (
             torch.softmax(t[3][0, 0, :, :1024], -1) @ t[0][0, 0, :1024]
         ),
     }

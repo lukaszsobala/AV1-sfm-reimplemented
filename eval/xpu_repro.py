@@ -44,13 +44,15 @@ def main(dev: str) -> None:
     v = torch.randn(5000, 64, generator=g)  # e.g. attention values
     sd, vd = s.to(dev), v.to(dev)
 
-    print("Matrix products, (5000 x n) @ (n x 64) (max relative difference to the CPU):")
+    print("Matrix products (5000 x n) @ (n x 64), softmax on the CPU (max relative difference):")
     for n in (1024, 4096, 4097, 4352, 4608, 5000):
         p = torch.softmax(s[:, :n], -1)
         line(f"softmax(S[:, :{n}]) @ V[:{n}]", f"{rel(p @ v[:n], p.to(dev) @ vd[:n]):.2e}")
     p, pd = torch.softmax(s, -1), torch.softmax(sd, -1)
     b, bd = p.reshape(1, 1, 5000, 5000), pd.reshape(1, 1, 5000, 5000)
     w, wd = v.reshape(1, 1, 5000, 64), vd.reshape(1, 1, 5000, 64)
+    print("The same with the softmax on the device:")
+    line("softmax(S) @ V, 2-D, n = 5000", f"{rel(p @ v, pd @ vd):.2e}")
     line("batched 4-D matmul, n = 5000", f"{rel(b @ w, bd @ wd):.2e}")
     ein = "bhji,bhjd->bhid"
     ref = torch.einsum(ein, b.transpose(-2, -1), w)
@@ -61,6 +63,7 @@ def main(dev: str) -> None:
     print("Reductions over the last dimension, 5000 rows of n:")
     for n in (4096, 4097, 5000):
         x, xd = s[:, :n], sd[:, :n]
+        line(f"softmax, n = {n}", f"{rel(torch.softmax(x, -1), torch.softmax(xd, -1)):.2e}")
         line(
             f"log_softmax, n = {n}",
             f"{rel(torch.log_softmax(x, -1), torch.log_softmax(xd, -1)):.2e}",

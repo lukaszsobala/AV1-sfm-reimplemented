@@ -16,13 +16,14 @@ GPU, attention runs in float16 as kornia (and the original LightGlue) does on
 CUDA with its default `flash=True`; on the CPU in float32. On the CPU, `match`
 gives the same matches as kornia's own forward pass.
 
-Changes for PyTorch XPU 2.14 (Intel GPUs), where boolean-mask indexing
-returned inconsistent sizes and out-of-bounds indices, and matrix products and
-log_softmax over thousands of keypoints were wrong (eval/check_device.py):
-point selection (DISK's keypoints, LightGlue's pruning and final matches)
-uses index lists computed on the CPU; cross-attention goes through PyTorch's
-attention kernel (`cross_block_forward`); and on a GPU, the dual softmax is
-written with logsumexp (`double_softmax_maxima`), which is correct there.
+Changes for PyTorch XPU 2.14 (Intel GPUs), where `nonzero` and boolean-mask
+indexing on large tensors return too few elements, and softmax and
+log_softmax over more than 4096 elements are wrong (docs/DEPENDENCY_ISSUES.md,
+eval/xpu_repro.py): point selection (DISK's keypoints, LightGlue's pruning and
+final matches) uses index lists computed on the CPU; cross-attention goes
+through PyTorch's fused attention kernel (`cross_block_forward`), which is
+correct; and on a GPU, the dual softmax is written with logsumexp
+(`double_softmax_maxima`).
 
 Keypoints are written to the COLMAP database with +0.5 px (DISK returns pixel
 indices; COLMAP puts the centre of the top-left pixel at (0.5, 0.5)). Raw
@@ -200,8 +201,8 @@ def double_softmax_maxima(sim, z0, z1) -> tuple[np.ndarray, np.ndarray, np.ndarr
 
     log_softmax(x) is written as x - logsumexp(x), and reductions run over the
     last dimension of contiguous tensors: on PyTorch XPU 2.14, log_softmax over
-    thousands of entries is wrong, while logsumexp, max and transposed copies
-    are correct (eval/check_device.py).
+    more than 4096 entries is wrong, while logsumexp, max and transposed copies
+    are correct (docs/DEPENDENCY_ISSUES.md).
     """
     import torch
 
@@ -228,9 +229,9 @@ def cross_block_forward(self, x0, x1, mask=None, *, attention):
 
     m0 = softmax(q0 q1^T / sqrt(d)) v1 and m1 = softmax(q1 q0^T / sqrt(d)) v0,
     as in kornia (which scales q0 and q1 by d^-1/4 each and, on CUDA, uses its
-    attention module like this). On PyTorch XPU 2.14, the product of the
-    attention weights with the values (a sum over all keypoints) is wrong when
-    written as einsum or matmul, while scaled_dot_product_attention is correct.
+    attention module like this). kornia's own version on other devices takes a
+    softmax over all keypoints of the other image, which is wrong on PyTorch
+    XPU 2.14 above 4096 keypoints; scaled_dot_product_attention is correct.
     """
     import torch
 
