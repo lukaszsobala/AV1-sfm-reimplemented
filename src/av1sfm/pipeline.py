@@ -77,6 +77,11 @@ def run_mv_matching(
             "max_length": int(lengths.max()) if len(lengths) else 0,
         },
         "keypoints_per_image": float(kp.mean()),
+        "stream": {
+            "decoded_frames": len(frames),
+            "shown_frames": num_shown_frames(frames),
+            "low_delay": all(f.decode_index == f.index for f in frames),
+        },
         "database": db_stats,
         "num_images": len(images),
         "ffmpeg_command": ffmpeg_cmd,

@@ -31,15 +31,7 @@ from pathlib import Path
 import numpy as np
 import pycolmap
 
-
-def pick_model(rec: Path) -> Path:
-    """`rec` itself if it holds a model, else its sub-model with the most images."""
-    if (rec / "cameras.bin").exists() or (rec / "cameras.txt").exists():
-        return rec
-    subs = [d for d in rec.iterdir() if d.is_dir() and d.name.isdigit()]
-    if not subs:
-        raise FileNotFoundError(f"no COLMAP model in {rec}")
-    return max(subs, key=lambda d: pycolmap.Reconstruction(d).num_reg_images())
+from av1sfm.export import pick_model
 
 
 def kitti_ground_truth(seq_dir: str | Path, camera: str = "P2") -> np.ndarray:
