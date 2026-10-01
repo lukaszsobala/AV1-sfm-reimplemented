@@ -16,9 +16,9 @@ device, which is broken on PyTorch XPU 2.14 (Intel GPUs): it returned
 inconsistent sizes and out-of-bounds indices. Likewise, DISK's keypoint
 selection runs on the CPU and descriptors are sampled with index_select.
 The cross-attention blocks use `cross_block_forward`, the same computation
-with contiguous matrix products: kornia's version (einsum on transposed views)
-gave wrong results on PyTorch XPU 2.14 although each of its sub-modules was
-correct (eval/check_device.py).
+through PyTorch's attention kernel: kornia's einsum version gave wrong results
+on PyTorch XPU 2.14 although each of its sub-modules was correct
+(eval/check_device.py).
 
 Keypoints are written to the COLMAP database with +0.5 px (DISK returns pixel
 indices; COLMAP puts the centre of the top-left pixel at (0.5, 0.5)). Raw
@@ -128,10 +128,13 @@ def mutual_matches(v0: np.ndarray, i0: np.ndarray, i1: np.ndarray, th: float) ->
 
 
 def cross_block_forward(self, x0, x1, mask=None):
-    """kornia's CrossBlock.forward (non-flash path) with contiguous operands.
+    """kornia's CrossBlock.forward with PyTorch's attention kernel.
 
-    sim = q0 q1^T / sqrt(d); m0 = softmax_j(sim) v1; m1 = softmax_i(sim^T) v0.
-    sim^T is computed as its own product rather than transposed.
+    m0 = softmax(q0 q1^T / sqrt(d)) v1 and m1 = softmax(q1 q0^T / sqrt(d)) v0,
+    as in kornia (which scales q0 and q1 by d^-1/4 each) and as in the original
+    LightGlue's flash path. On PyTorch XPU 2.14, the matrix product of the
+    attention weights with the values (a sum over all keypoints) is wrong when
+    written as einsum or matmul, while scaled_dot_product_attention is correct.
     """
     import torch
 
@@ -141,12 +144,8 @@ def cross_block_forward(self, x0, x1, mask=None):
         t.unflatten(-1, (self.heads, -1)).transpose(1, 2).contiguous()
         for t in (self.to_qk(x0), self.to_qk(x1), self.to_v(x0), self.to_v(x1))
     )
-    s = self.scale**0.5
-    qk0, qk1 = qk0 * s, qk1 * s
-    sim01 = torch.matmul(qk0, qk1.transpose(-1, -2).contiguous())
-    sim10 = torch.matmul(qk1, qk0.transpose(-1, -2).contiguous())
-    m0 = torch.matmul(torch.softmax(sim01, dim=-1), v1)
-    m1 = torch.matmul(torch.softmax(sim10, dim=-1), v0)
+    attention = torch.nn.functional.scaled_dot_product_attention
+    m0, m1 = attention(qk0, qk1, v1), attention(qk1, qk0, v0)  # default scale: d^-1/2
     m0, m1 = (t.transpose(1, 2).contiguous().flatten(start_dim=-2) for t in (m0, m1))
     m0, m1 = self.to_out(m0), self.to_out(m1)
     x0 = x0 + self.ffn(torch.cat([x0, m0], -1))

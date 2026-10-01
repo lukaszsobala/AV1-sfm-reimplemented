@@ -171,6 +171,13 @@ def primitives(dev) -> None:
             "bhji, bhjd -> bhid", torch.softmax(t[3], -1).transpose(-2, -1), t[0]
         ),
         "transpose(-2, -1).contiguous() 5000²": lambda t: t[3].transpose(-2, -1).contiguous(),
+        "matmul, sum over 5000 (batched 4-D)": lambda t: torch.matmul(
+            torch.softmax(t[3], -1), t[0]
+        ),
+        "matmul, sum over 5000 (2-D)": lambda t: torch.softmax(t[3][0, 0], -1) @ t[0][0, 0],
+        "matmul, sum over 1024 (2-D)": lambda t: (
+            torch.softmax(t[3][0, 0, :, :1024], -1) @ t[0][0, 0, :1024]
+        ),
     }
     print("Primitive operations, random inputs (max rel. diff):")
     for name, op in ops.items():
