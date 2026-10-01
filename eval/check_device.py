@@ -152,6 +152,7 @@ def primitives(dev) -> None:
     x = torch.randn(1, 4, 5000, 64, generator=g)
     freqs = torch.randn(2, 1, 1, 5000, 64, generator=g)
     w = torch.randn(256, 512, generator=g) / 16
+    sim = torch.randn(1, 4, 5000, 5000, generator=g)
     ops = {
         "rotate_half (unflatten/unbind/stack)": lambda t: rotate_half(t[0]),
         "apply_cached_rotary_emb": lambda t: apply_cached_rotary_emb(t[1], t[0]),
@@ -166,13 +167,17 @@ def primitives(dev) -> None:
         "gelu": lambda t: torch.nn.functional.gelu(t[0]),
         "matmul (5000x256 @ 256x512)": lambda t: t[0].reshape(-1, 256) @ t[2],
         "cos / sin": lambda t: torch.cos(t[0]) + torch.sin(t[0]),
+        "einsum, transposed operand": lambda t: torch.einsum(
+            "bhji, bhjd -> bhid", torch.softmax(t[3], -1).transpose(-2, -1), t[0]
+        ),
+        "transpose(-2, -1).contiguous() 5000²": lambda t: t[3].transpose(-2, -1).contiguous(),
     }
     print("Primitive operations, random inputs (max rel. diff):")
     for name, op in ops.items():
         with torch.inference_mode():
-            a = op((x, freqs, w))
+            a = op((x, freqs, w, sim))
             try:
-                b = op((x.to(dev), freqs.to(dev), w.to(dev)))
+                b = op((x.to(dev), freqs.to(dev), w.to(dev), sim.to(dev)))
                 print(f"  {name:38s} {rel_diff(a, b):.2e}")
             except RuntimeError as e:  # report and continue
                 print(f"  {name:38s} FAILED: {type(e).__name__}: {e}")
