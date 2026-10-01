@@ -175,6 +175,11 @@ def primitives(dev) -> None:
             torch.softmax(t[3], -1), t[0]
         ),
         "matmul, sum over 5000 (2-D)": lambda t: torch.softmax(t[3][0, 0], -1) @ t[0][0, 0],
+        "log_softmax over 5000": lambda t: torch.log_softmax(t[3], -1),
+        "logsumexp over 5000": lambda t: torch.logsumexp(t[3], -1),
+        "max over 5000 (values)": lambda t: t[3].max(-1).values,
+        "sum over 5000": lambda t: t[3].sum(-1),
+        "add transposed (x + x^T)": lambda t: t[3] + t[3].transpose(-1, -2),
         "matmul, sum over 1024 (2-D)": lambda t: (
             torch.softmax(t[3][0, 0, :, :1024], -1) @ t[0][0, 0, :1024]
         ),
@@ -207,7 +212,7 @@ def lightglue_variants(nets, fd0, fd1, fc0, fc1) -> None:
         lg, rec = nets[key].lightglue, []
         hooks = [
             m.register_forward_hook(lambda _m, _i, o, rec=rec: rec.append(o))
-            for m in [lg.input_proj, *lg.transformers, lg.log_assignment[-1]]
+            for m in [lg.input_proj, *lg.transformers]
         ]
         nets[key].match(f0, f1)
         for h in hooks:
@@ -219,7 +224,6 @@ def lightglue_variants(nets, fd0, fd1, fc0, fc1) -> None:
     n_layers = len(nets["cpu"].lightglue.transformers)
     names = ["input_proj 0", "input_proj 1"]
     names += [f"layer {i} desc{j}" for i in range(n_layers) for j in (0, 1)]
-    names += ["assignment scores", "assignment sim"]
     for name, a, b in zip(names, outs["cpu"], outs["device"], strict=False):
         rel = (a - b).abs().max().item() / max(a.abs().max().item(), 1e-12)
         print(f"  {name:18s} max rel. diff {rel:.2e}")

@@ -9,16 +9,16 @@ weights, non-maximum suppression window 5, no score threshold, at most
 threshold (0.1). Weights are downloaded on first use into PyTorch's hub cache.
 
 LightGlue runs through `DiskLightGlue.match`, which calls kornia's layers in
-the order of kornia's forward pass with two changes: no point pruning (a speed
-optimisation whose kept points depend on floating-point noise), and the final
-mutual-match selection on the CPU. Both avoid boolean-mask indexing on the
-device, which is broken on PyTorch XPU 2.14 (Intel GPUs): it returned
-inconsistent sizes and out-of-bounds indices. Likewise, DISK's keypoint
+the order of kornia's forward pass with three changes: no point pruning (a
+speed optimisation whose kept points depend on floating-point noise); the
+dual softmax over the similarity matrix and the mutual-match selection on the
+CPU; and cross-attention through PyTorch's attention kernel (below). On
+PyTorch XPU 2.14 (Intel GPUs), boolean-mask indexing returned inconsistent
+sizes and out-of-bounds indices, and products or reductions over thousands of
+keypoints (einsum / matmul summing over 5000) were wrong (eval/check_device.py). Likewise, DISK's keypoint
 selection runs on the CPU and descriptors are sampled with index_select.
 The cross-attention blocks use `cross_block_forward`, the same computation
-through PyTorch's attention kernel: kornia's einsum version gave wrong results
-on PyTorch XPU 2.14 although each of its sub-modules was correct
-(eval/check_device.py).
+through PyTorch's attention kernel, which is correct on XPU.
 
 Keypoints are written to the COLMAP database with +0.5 px (DISK returns pixel
 indices; COLMAP puts the centre of the top-left pixel at (0.5, 0.5)). Raw
@@ -55,12 +55,13 @@ class DiskLightGlue:
         try:
             from kornia.feature import DISK, LightGlue
             from kornia.feature.disk.detector import heatmap_to_keypoints
-            from kornia.feature.lightglue import normalize_keypoints
+            from kornia.feature.lightglue import normalize_keypoints, sigmoid_log_double_softmax
         except ImportError as e:  # pragma: no cover - depends on the environment
             raise ImportError("DISK + LightGlue needs kornia: uv pip install kornia") from e
         self.torch, self.device, self.max_keypoints = torch, device, max_keypoints
         self.heatmap_to_keypoints = heatmap_to_keypoints
         self.normalize_keypoints = normalize_keypoints
+        self.sigmoid_log_double_softmax = sigmoid_log_double_softmax
         self.disk = DISK.from_pretrained("depth", device=device).eval()
         self.lightglue = LightGlue("disk").to(device).eval()
         for layer in self.lightglue.transformers:
@@ -110,12 +111,18 @@ class DiskLightGlue:
                     t0, t1 = lg.token_confidence[i](d0, d1)
                     if lg.check_if_stop(t0, t1, i, m + n):
                         break
-            scores, _ = lg.log_assignment[i](d0, d1)
-            # Row / column maxima on the device; selection on the CPU.
+            # kornia's MatchAssignment.forward, split: the similarity matrix on
+            # the device, the dual softmax and match selection on the CPU.
+            head = lg.log_assignment[i]
+            md0, md1 = head.final_proj(d0), head.final_proj(d1)
+            scale = md0.shape[-1] ** 0.25
+            sim = torch.einsum("bmd,bnd->bmn", md0 / scale, md1 / scale)
+            z0, z1 = head.matchability(d0), head.matchability(d1)
+            scores = self.sigmoid_log_double_softmax(sim.cpu(), z0.cpu(), z1.cpu())
             max0 = scores[0, :-1, :-1].max(1)
             max1 = scores[0, :-1, :-1].max(0)
-            v0, i0 = max0.values.cpu().numpy(), max0.indices.cpu().numpy()
-            i1 = max1.indices.cpu().numpy()
+            v0, i0 = max0.values.numpy(), max0.indices.numpy()
+            i1 = max1.indices.numpy()
         return mutual_matches(v0, i0, i1, lg.conf.filter_threshold)
 
 
