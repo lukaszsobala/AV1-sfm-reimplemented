@@ -1,4 +1,10 @@
-"""Exact SIFT matcher against a literal port of COLMAP's brute-force loop."""
+"""Exact SIFT matcher against a literal port of COLMAP's brute-force loop.
+
+`colmap_one_way` is a Python port of FindBestMatchesOneWayBruteForce from
+COLMAP 4.2.1 (src/colmap/feature/sift.cc), Copyright (c) ETH Zurich and UNC
+Chapel Hill, licensed under the BSD 3-Clause licence: see
+LICENSES/BSD-3-Clause-COLMAP.txt. Translated to Python for this test.
+"""
 
 from __future__ import annotations
 

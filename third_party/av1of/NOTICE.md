@@ -2,7 +2,8 @@
 
 Source: https://github.com/sigmedia/AV1-Optical-Flow
 Commit: a93279609639a308b598b94aff00d88eed4d6489 (2026-06-22)
-License: GNU Affero General Public License v3.0 (see `/LICENSE`)
+License: GNU Affero General Public License v3.0 (see `/LICENSE`). Upstream states
+version 3.0 without "or later", so these files are AGPL-3.0 only.
 Copyright © 2026 Sigmedia.tv / Julien Zouein (zoueinj@tcd.ie)
 
 Official code for "AV1 Motion Vector Fidelity and Application for Efficient

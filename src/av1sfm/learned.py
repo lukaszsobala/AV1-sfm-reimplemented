@@ -28,6 +28,17 @@ correct; and on a GPU, the dual softmax is written with logsumexp
 Keypoints are written to the COLMAP database with +0.5 px (DISK returns pixel
 indices; COLMAP puts the centre of the top-left pixel at (0.5, 0.5)). Raw
 matches then go through COLMAP's geometric verification like every other method.
+
+Licence of adapted code: `DiskLightGlue.match`, `DiskLightGlue.attention`,
+`DiskLightGlue._keep`, `double_softmax_maxima`, `mutual_matches` and
+`cross_block_forward` are adapted from kornia's kornia/feature/lightglue.py
+(kornia 0.8.3, Copyright 2018 Kornia Team), itself a port of LightGlue
+(github.com/cvg/LightGlue, Copyright 2023 ETH Zurich), both under the Apache
+License 2.0 (LICENSES/Apache-2.0.txt). Modified in 2026 for AV1-sfm-reimplemented:
+point selection on the CPU, attention through scaled_dot_product_attention,
+the dual softmax written with logsumexp, and the forward pass split into
+these functions. The rest of this file is original and, like the
+modifications, licensed under the AGPL (see LICENSE).
 """
 
 from __future__ import annotations

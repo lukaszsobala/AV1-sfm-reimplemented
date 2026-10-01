@@ -3,7 +3,8 @@ name = "av1sfm"
 version = "0.1.0"
 description = "Reimplementation of AV1 motion-vector feature matching for Structure-from-Motion (Zouein et al., arXiv 2510.17434)."
 readme = "README.md"
-license = "AGPL-3.0-or-later"
+license = "AGPL-3.0-or-later AND AGPL-3.0-only AND Apache-2.0"
+license-files = ["LICENSE", "LICENSES/*", "NOTICE.md", "third_party/av1of/NOTICE.md"]
 requires-python = ">=3.14"
 dependencies = [
     "numpy>=2.3",

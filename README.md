@@ -147,10 +147,14 @@ reconstruction.
 
 ## Licence
 
-AGPL-3.0-or-later (see [LICENSE](LICENSE)). The motion-vector extraction layer
-is vendored from sigmedia/AV1-Optical-Flow (AGPL-3.0, © 2026 Sigmedia.tv /
-Julien Zouein); see [third_party/av1of/NOTICE.md](third_party/av1of/NOTICE.md)
-for the files, the upstream commit and the one modification.
+av1sfm's own code is AGPL-3.0-or-later (see [LICENSE](LICENSE)). The
+motion-vector extraction layer is vendored from sigmedia/AV1-Optical-Flow
+(AGPL-3.0, © 2026 Sigmedia.tv / Julien Zouein); parts of the DISK + LightGlue
+baseline are adapted from kornia and LightGlue (Apache-2.0); and one test
+contains a port of a COLMAP function (BSD-3-Clause). Together, the repository
+can be distributed under AGPL-3.0. [NOTICE.md](NOTICE.md) lists all
+third-party material, the licences of the dependencies and model weights, and
+the terms of the datasets: KITTI does not allow commercial use.
 
 ## Citation
 
