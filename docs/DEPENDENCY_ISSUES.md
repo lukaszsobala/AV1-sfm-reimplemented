@@ -7,9 +7,9 @@ results in ways that are easy to miss, follow them.
 
 | # | Component | Problem | Kind | av1sfm |
 |---|---|---|---|---|
-| 1 | PyTorch XPU 2.14.1 | Boolean-mask indexing and `nonzero` disagree; out-of-bounds device asserts | bug | Index lists computed on the CPU |
-| 2 | PyTorch XPU 2.14.1 | Matrix products summing over thousands of elements are wrong | bug | Attention through `scaled_dot_product_attention` |
-| 3 | PyTorch XPU 2.14.1 | `log_softmax` over thousands of elements is wrong | bug | Written as `x - logsumexp(x)` |
+| 1 | PyTorch XPU 2.14.1 | `nonzero` and boolean-mask indexing return too few elements; out-of-bounds device asserts | bug | Index lists computed on the CPU |
+| 2 | PyTorch XPU 2.14.1 | Matrix products summing over more than 4096 elements are wrong | bug | Attention through `scaled_dot_product_attention` |
+| 3 | PyTorch XPU 2.14.1 | `log_softmax` over 5000 elements is wrong | bug | Written as `x - logsumexp(x)` |
 | 4 | kornia 0.8.3 | `LightGlue` raises `KeyError: 'xpu'` on any device but CPU, MPS and CUDA | bug | Own forward pass over kornia's layers |
 | 5 | kornia 0.8.3 | LightGlue's fast attention path is CUDA-only | limitation | Same kernels on every device |
 | 6 | kornia 0.8.3 | `LightGlue` prints to stdout | nuisance | Statistics written to a file |
@@ -30,21 +30,34 @@ GPU compute runtime from Intel's graphics PPA (Level Zero driver
 
 `eval/check_device.py` found these by running every LightGlue module and the
 operations inside them on the GPU and on the CPU with identical inputs.
-`eval/xpu_repro.py` reproduces them with PyTorch alone, for bug reports.
-Neither has been reported upstream yet; the place is
-[intel/torch-xpu-ops](https://github.com/intel/torch-xpu-ops/issues).
+`eval/xpu_repro.py` reproduces all three with PyTorch alone and random inputs,
+and prints the driver version, for bug reports. They have not been reported
+upstream yet; the place is
+[intel/torch-xpu-ops](https://github.com/intel/torch-xpu-ops/issues). Basic
+operations failing this plainly suggests a problem specific to this GPU or
+driver version rather than to PyTorch in general, but that is not established.
 
 Operations that were **correct** on the same machine (maximum relative
 difference to the CPU): `scaled_dot_product_attention` (3·10⁻⁶ in float32,
 4·10⁻⁴ in float16), `Linear`, `LayerNorm`, `GELU`, convolutions (DISK's score
 map), `softmax`, `logsumexp`, `max` and `sum` over 5000 elements, transposed
-copies, and matrix products summing over up to 1024 elements (1·10⁻⁶).
+copies, and matrix products summing over up to 4096 elements (≤ 3·10⁻⁶).
 
-### 1. Boolean masks: `nonzero` and `x[mask]` disagree
+### 1. `nonzero` and boolean-mask indexing return too few elements
 
-kornia's DISK keypoint selection takes a non-maximum-suppression mask and
-uses it twice: `mask.nonzero()` for positions and `heatmap[mask]` for scores.
-On the GPU the two disagreed in length:
+On the GPU, `mask.nonzero()` and `x[mask]` return far fewer elements than the
+mask contains, while `mask.sum()` on the same mask is correct.
+`eval/xpu_repro.py` builds the mask that kornia's DISK keypoint selection uses
+(non-maximum suppression on a 384×1248 score map) from random data:
+
+| Seed | `mask.sum()` (CPU and GPU) | `nonzero()` and `x[mask]` on the GPU |
+|---|---:|---:|
+| 0 | 19,195 | 148 |
+| 1 | 19,211 | 136 |
+| 2 | 19,280 | 112 |
+
+The two wrong results need not even agree with each other. In kornia's DISK,
+which uses both on the same mask, they did not:
 
 ```
 kornia/feature/disk/detector.py, line 49, in heatmap_to_keypoints
@@ -52,8 +65,8 @@ kornia/feature/disk/detector.py, line 49, in heatmap_to_keypoints
 IndexError: The shape of the mask [1312] at index 0 does not match the shape of the indexed tensor [2166, 2] at index 0
 ```
 
-Similar code in LightGlue's match selection triggered device-side asserts,
-followed by a lost device and an abort at exit:
+In LightGlue's match selection, indices built this way triggered device-side
+asserts, followed by a lost device and an abort at exit:
 
 ```
 torch-xpu-ops/src/ATen/native/xpu/sycl/Indexing.h:622: operator(): global id: [185,0,0], local id: [185,0,0]
@@ -62,28 +75,30 @@ Assertion `index >= -sizes_[i] && index < sizes_[i] && "index out of bounds"` fa
 UR_RESULT_ERROR_DEVICE_LOST
 ```
 
-The same code is correct on the CPU. `eval/xpu_repro.py` builds a mask the same
-way on random data; whether that alone triggers the bug is still to be
-confirmed on the GPU.
-
 **Workaround** (`av1sfm/learned.py`): no boolean indexing on the GPU. DISK's
 keypoints are selected on the CPU from the score map. LightGlue's point
 pruning and final match selection compute index lists on the CPU, and the GPU
 gathers with `index_select`.
 
-### 2. Matrix products over long dimensions are wrong
+### 2. Matrix products summing over more than 4096 elements are wrong
 
-A product whose sum runs over thousands of elements returns wrong values,
-including in attention, where the sum runs over all keypoints of the other
-image (5000 with DISK). Maximum relative difference to the CPU, random inputs:
+A matrix product whose sum runs over more than 4096 elements returns wrong
+values. Attention is such a product: its sum runs over all keypoints of the
+other image (5000 with DISK). Maximum relative difference to the CPU on random
+inputs, `softmax(S) @ V` with S of 5000×n and V of n×64:
 
-| Operation | Relative difference |
-|---|---:|
-| `softmax(S) @ V`, summing over 1024 | 1.3·10⁻⁶ (correct) |
-| `softmax(S) @ V`, summing over 5000, 2-D | 4.9·10⁴ |
-| `softmax(S) @ V`, summing over 5000, batched 4-D | 30 |
-| `einsum("bhji,bhjd->bhid", P.transpose(-2, -1), V)`, 5000 | 1.1·10⁵ |
-| `x @ W`, 5000×256 by 256×512 (sum over 256) | 5.4·10⁻⁷ (correct) |
+| Sum over n | Relative difference |
+|---:|---:|
+| 1024 | 9.3·10⁻⁷ (correct) |
+| 2048 | 1.4·10⁻⁶ (correct) |
+| 4096 | 2.7·10⁻⁶ (correct) |
+| 5000 | 0.80 |
+| 5000, as a batched 4-D `matmul` | 0.80 |
+| 5000, as `einsum("bhji,bhjd->bhid", P.transpose(-2, -1), V)` | 0.80 |
+
+Products with a short sum are correct at any size (`x @ W`, 5000×256 by
+256×512: 5.4·10⁻⁷). With other random inputs (`eval/check_device.py`), the
+error reached a relative 10⁵.
 
 This broke kornia's LightGlue cross-attention, which uses `einsum` on
 non-CUDA devices: matches were wrong from the first layer (3,967 matches on the
@@ -95,11 +110,12 @@ are identical to kornia's. Exact SIFT matching is unaffected: its products sum
 over 128 descriptor dimensions, and every selected product is re-checked in
 integer arithmetic on each run.
 
-### 3. `log_softmax` over long dimensions is wrong
+### 3. `log_softmax` over 5000 elements is wrong
 
-`log_softmax` over 5000 elements differs from the CPU by a relative 1.1, while
-`logsumexp`, `max` and `sum` over the same data are correct (≤ 2·10⁻⁷). This
-broke LightGlue's final assignment (its dual softmax).
+`log_softmax` over rows of 5000 elements differs from the CPU by a relative
+1.0, while `logsumexp`, `max` and `sum` over the same data are correct
+(≤ 2·10⁻⁷). This broke LightGlue's final assignment (its dual softmax).
+Whether it starts above 4096 elements like bug 2 is to be confirmed.
 
 **Workaround** (`double_softmax_maxima`): the dual softmax is written as
 `x - logsumexp(x)`, with reductions over the last dimension of contiguous
