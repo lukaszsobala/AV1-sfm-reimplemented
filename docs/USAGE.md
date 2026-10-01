@@ -28,7 +28,7 @@ clip.ivf ──patched dav1d (in-memory block metadata)──▶ per-frame 4×4 
 | `src/av1sfm/pipeline.py`, `cli.py` | The `av1sfm` command (`match`, `encode`, `encoders`, `score`, `validate-warp`) and its run statistics. |
 | `src/av1sfm/sift_exact.py` | Exact SIFT matching on a PyTorch device, identical to COLMAP's brute-force matcher. |
 | `src/av1sfm/learned.py`, `devices.py` | DISK + LightGlue baseline (kornia) and PyTorch device selection. |
-| `eval/` | Evaluation: dataset download, SIFT / DISK baselines, mapper, tables, export, GPU checks. |
+| `eval/` | Evaluation: dataset download, SIFT / DISK baselines, mapper, pose accuracy against KITTI ground truth, tables, export, GPU checks. |
 | `src/av1sfm/_vendor/`, `third_party/av1of/` | Extraction layer vendored from [sigmedia/AV1-Optical-Flow](https://github.com/sigmedia/AV1-Optical-Flow) (AGPL-3.0). |
 
 ## Setup
@@ -112,7 +112,27 @@ Main `match` options (defaults in brackets):
 | `--svt-preset` [10], `--svt-params` | SVT-AV1 preset and extra `key=value:...` parameters. |
 | `--hw-device` | Vulkan device index, or QSV / VA-API DRM render node (e.g. `/dev/dri/renderD128`). |
 
+`eval/run_mapper.py` options. Without them it runs COLMAP's incremental
+mapper with default settings, as for all published results. On MV databases
+the mapper is the slowest stage by far: dense MV tracks add more than 10 % new
+3D points with almost every image, so COLMAP runs a full global bundle
+adjustment after nearly every registration. Two faster variants are opt-in;
+[RESULTS.md](RESULTS.md#faster-mapping-on-mv-databases-lunar-lake-performance-profile)
+has their speed and pose accuracy on KITTI.
+
+| Option | Meaning |
+|---|---|
+| `--fix-intrinsics` | keep the shared camera at its initial (calibrated) value. |
+| `--init-max-forward-motion`, `--init-min-tri-angle` [0.95, 16] | initial-pair constraints; KITTI's forward drive needs 1.0 and 4. |
+| `--prune-redundant-points` | incremental mapper; global bundle adjustments skip 3D points that add little image coverage (COLMAP's `ba_global_ignore_redundant_points3D`). 14–36 % faster on MV databases with the same reconstruction quality; recommended for MV databases. |
+| `--mapper global` | COLMAP's global mapper (GLOMAP): rotation averaging and global positioning instead of image-by-image registration. About 3× faster on MV databases, with 3–12 % fewer points and slightly worse poses. |
+| `--global-tracks-per-view N` | with `--mapper global`, position the cameras with N tracks per image instead of all; every track is still triangulated afterwards. Much faster, but less accurate on noisy matches (libaom on KITTI). |
+| `--kitti-sequence DIR` | compare camera poses with the KITTI ground truth in `DIR` (`NN.txt`, `calib.txt`, as fetched by `eval/fetch_kitti.py`): absolute trajectory error after a similarity alignment and relative pose error over 1 and 10 frames (`eval/pose_error.py`). |
+
 ```bash
+# pose accuracy of any reconstruction against KITTI ground truth
+uv run python eval/pose_error.py runs/kitti117/rec_mv data/kitti/00
+
 # reconstruction -> point cloud (PLY) and an undistorted COLMAP workspace
 uv run python eval/export_model.py out/sparse path/to/images out/export
 ```
@@ -126,7 +146,7 @@ so every backend's reference structure is handled.
 | `--encoder` | FFmpeg encoder | Configuration | Status |
 |---|---|---|---|
 | `libaom` (default) | `libaom-av1` | `-usage realtime -cpu-used 6 -lag-in-frames 0 -crf 32` | The paper's encoder. Tested. 97 % of MVs reference the previous frame; quarter-pel. |
-| `svtav1` | `libsvtav1` (SVT-AV1 4.2) | `-preset 10 -crf 32 -svtav1-params pred-struct=1:rtc=1:keyint=-1` | Tested. About 4× faster to encode than libaom on KITTI, but layered references (51 % to n−1), 19 % compound blocks and noisier MVs (warp error 8.9 vs 5.1). |
+| `svtav1` | `libsvtav1` (SVT-AV1 4.2) | `-preset 10 -crf 32 -svtav1-params pred-struct=1:rtc=1:keyint=-1` | Tested. About 4× faster to encode than libaom on KITTI, but layered references (51 % to n−1), 19 % compound blocks and noisier MVs (warp error 8.9 vs 5.1). Odd frame sizes (KITTI: 1241 px) are padded by one repeated column or row, which SVT-AV1 2.x requires. |
 | `vulkan` | `av1_vulkan` (Vulkan Video) | hwupload to a Vulkan device, `-rc_mode cqp -qp 128 -bf 0 -tune ll -usage stream` | Needs `VK_KHR_video_encode_av1`: Mesa RADV (AMD RDNA3+) or ANV (Intel Arc / Xe2+). **Does not work on Intel Lunar Lake** (Ubuntu 26.04, Intel graphics PPA): the driver does not expose Vulkan video encode (ASSUMPTIONS.md E5b). Not tested on AMD. |
 | `qsv` | `av1_qsv` (oneVPL) | VA-API device, hwupload, `-preset veryfast -q:v 128 -bf 0 -look_ahead_depth 0` | Needs Intel Arc / Meteor Lake or newer with the VPL GPU runtime. Tested on Intel Lunar Lake: 117 KITTI frames in 0.6 s, all MVs to the previous frame (ASSUMPTIONS.md E5c). |
 | `vaapi` | `av1_vaapi` (VA-API) | hwupload to a VA-API device, `-rc_mode CQP -global_quality 128 -bf 0` | Needs a VA-API driver with AV1 encode (Intel media driver on Arc / Meteor Lake / Lunar Lake, Mesa on AMD RDNA3+). Tested on Intel Lunar Lake: 117 KITTI frames in 0.5 s, the most precise MVs of all encoders tested (ASSUMPTIONS.md E5f). Not tested on AMD. |
@@ -235,7 +255,7 @@ better model to move around in than KITTI's forward drive.
 
 ## Tests
 
-`tests/` (67 tests; `pytest`) uses synthetic data for:
+`tests/` (72 tests; `pytest`) uses synthetic data for:
 
 - the cosine filter (`test_cosine.py`): thresholds, τ, ε = 1;
 - MV-to-correspondence geometry (`test_blocks.py`): block collapse, centres, references, compound blocks;
@@ -243,6 +263,7 @@ better model to move around in than KITTI's forward drive.
 - the COLMAP writer (`test_colmap_db.py`) and the Sampson formulas (`test_geometry.py`);
 - an end-to-end check on a real AV1 encode of a synthetic pan + zoom with known ground truth (`test_integration.py`);
 - the exact SIFT matcher against a line-by-line port of COLMAP's brute-force loop (`test_sift_exact.py`);
-- LightGlue's dual softmax as computed on a GPU against kornia's (`test_learned.py`).
+- LightGlue's dual softmax as computed on a GPU against kornia's (`test_learned.py`);
+- pose errors against ground truth: similarity alignment, relative errors, KITTI's colour-camera offset (`test_pose_error.py`).
 
 The PyTorch tests are skipped when PyTorch or kornia is not installed.

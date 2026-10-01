@@ -100,23 +100,33 @@ def sfm_table(d: Path, n_img: int, prefix: str, title: str) -> None:
     maps = [(label, load(d / f"{prefix}{key}.json")) for key, label in METHODS]
     if not any(m for _, m in maps):
         return
+    # Pose errors against ground truth (KITTI, eval/pose_error.py), when measured.
+    poses = any(m and "pose_error" in m for _, m in maps)
     print(f"\nSfM, {title}:\n")
     print(
         "| Method | Registered | 3D points | Reproj. error (px) | Mean track length "
         "| Mapper wall (s) | Final global BA (s) |"
+        + (" ATE RMSE (m) | RPE 10 frames (m) | RPE 10 frames (°) |" if poses else "")
     )
-    print("|---|---:|---:|---:|---:|---:|---:|")
+    print("|---|---:|---:|---:|---:|---:|---:|" + ("---:|---:|---:|" if poses else ""))
     for label, m in maps:
         if not m:
             continue
         wall = fmt(m["timings"]["mapper"]["wall_s"], 1)
         if not m.get("num_models"):
-            print(f"| {label} | 0/{n_img} | – | – | – | {wall} | – |")
+            print(f"| {label} | 0/{n_img} | – | – | – | {wall} | – |" + (" – | – | – |" * poses))
             continue
+        pe = m.get("pose_error", {})
         print(
             f"| {label} | {m['registered_images']}/{n_img} | {fmt(m['points3D'])} "
             f"| {fmt(m['mean_reprojection_error_px'], 3)} | {fmt(m['mean_track_length'], 2)} "
             f"| {wall} | {fmt(m['final_global_ba_s'], 1)} |"
+            + (
+                f" {fmt(pe.get('ate_rmse_m'), 3)} | {fmt(pe.get('rpe10_trans_rmse_m'), 3)} "
+                f"| {fmt(pe.get('rpe10_rot_mean_deg'), 3)} |"
+                if poses
+                else ""
+            )
         )
 
 

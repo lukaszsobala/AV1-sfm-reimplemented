@@ -184,6 +184,58 @@ SfM, COLMAP default intrinsics refinement:
 | SIFT sequential, exact matching (PyTorch) | 117/117 | 35,323 | 0.375 | 7.39 | 48.0 | 2.9 |
 | DISK + LightGlue sequential (overlap 10) | 117/117 | 44,244 | 0.890 | 11.03 | 173.3 | 7.0 |
 
+## Faster mapping on MV databases (Lunar Lake, Performance profile)
+
+On MV databases, COLMAP's incremental mapper is by far the slowest stage. Dense
+MV tracks add more than 10 % new 3D points with almost every registered image,
+which is COLMAP's trigger (`ba_global_points_ratio = 1.1`) for retriangulation
+and a full global bundle adjustment, so one runs after nearly every image. On
+the VA-API database these global steps take 40 % of the mapper's time; the
+per-image registration, triangulation and local bundle adjustment take most of
+the rest, largely single-threaded (the mapper averages 310–330 % CPU on the
+8 cores).
+
+`eval/run_mapper.py` has opt-in alternatives ([USAGE.md](USAGE.md#usage)),
+compared here on the Lunar Lake databases of the table above (KITTI 00,
+frames 0–116, intrinsics fixed), in the "Performance" power profile. Pose
+accuracy is measured against the KITTI ground truth with `eval/pose_error.py`:
+absolute trajectory error (ATE) of the camera centres after a similarity
+alignment, and relative pose error (RPE) over 1 and 10 frames. The
+ground-truth path is 90.9 m long.
+
+| Database | Mapper | Mapper wall (s) | Registered | 3D points | Reproj. error (px) | Mean track length | ATE RMSE (m) | RPE 1 frame (m) | RPE 10 frames (m) | RPE 10 frames (°) |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| VA-API | incremental (default) | 177.3 | 117/117 | 114,328 | 0.598 | 8.75 | 0.250 | 0.0400 | 0.259 | 0.278 |
+| VA-API | incremental, `--prune-redundant-points` | 152.4 | 117/117 | 114,246 | 0.600 | 8.75 | 0.234 | 0.0391 | 0.251 | 0.282 |
+| VA-API | global, all tracks | 161.6 | 117/117 | 110,864 | 0.608 | 8.97 | 0.266 | 0.0407 | 0.265 | 0.277 |
+| VA-API | global, 1000 tracks / image | 58.5 | 117/117 | 110,389 | 0.601 | 8.99 | 0.268 | 0.0407 | 0.266 | 0.277 |
+| libaom | incremental (default) | 731.5 | 117/117 | 201,751 | 0.893 | 10.49 | 0.225 | 0.0392 | 0.250 | 0.300 |
+| libaom | incremental, `--prune-redundant-points` | 471.6 | 117/117 | 201,499 | 0.893 | 10.48 | 0.180 | 0.0370 | 0.233 | 0.292 |
+| libaom | global, all tracks | 246.6 | 117/117 | 176,709 | 0.918 | 11.61 | 0.247 | 0.0404 | 0.260 | 0.283 |
+| libaom | global, 1000 tracks / image | 95.9 | 117/117 | 172,218 | 0.888 | 11.27 | 0.824 | 0.0654 | 0.534 | 0.329 |
+
+For comparison, the reconstructions of the table above (Balanced profile,
+default mapper) have ATE / RPE over 10 frames of: SIFT sequential 0.208 /
+0.242 m, SIFT exhaustive 0.223 / 0.249 m, exact SIFT 0.202 / 0.240 m,
+DISK + LightGlue 0.190 / 0.240 m, QSV 0.257 / 0.273 m.
+
+- **`--prune-redundant-points`** (COLMAP's `ba_global_ignore_redundant_points3D`)
+  makes the mapper 14 % (VA-API) and 36 % (libaom) faster with the same
+  reconstruction: 0.1 % fewer points, the same reprojection error and track
+  length, and camera poses at least as accurate. It is the option to use on
+  MV databases; it stays opt-in so that the published tables remain
+  reproducible.
+- **The global mapper (GLOMAP)** is 3× faster on all tracks, but gives 3 % (VA-API)
+  to 12 % (libaom) fewer points and slightly worse poses. Positioning with
+  1000 tracks per image makes it 3–8× faster than the default and is harmless
+  on the clean VA-API matches, but on libaom's noisier matches the trajectory
+  error grows 3.7× (0.82 m). It is not a like-for-like replacement.
+- **Performance vs Balanced.** The default incremental mapper took 177 s
+  instead of 189 s (VA-API) and 732 s instead of 760 s (libaom), with the same
+  result (the VA-API model is identical; the libaom one differs by 2 of 201 k
+  points, from multithreaded bundle adjustment). COLMAP's geometric
+  verification of the VA-API matches took 22 s instead of about 31 s.
+
 ## Findings
 
 - **Reproducibility.** libaom MV matching is deterministic across machines:
