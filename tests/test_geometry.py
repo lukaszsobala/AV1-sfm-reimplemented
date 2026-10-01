@@ -71,6 +71,7 @@ def test_score_pair_degenerate_inputs():
     assert score_pair(cam, cam, p1, p2).model == "none"
     agg = summarize([score_pair(cam, cam, *scene()[1:])])
     assert agg["pairs"] == 1 and agg["frac_E"] == 1.0
+    assert agg["inlier_ratio_median_of_pairs"] == agg["inlier_ratio_mean"]  # one pair
 
 
 def test_repeats_and_squared_sampson():

@@ -167,6 +167,7 @@ def summarize(scores: list[PairScore]) -> dict:
         "inliers_total": tot_i,
         "inlier_ratio_mean": float(ratio.mean()),
         "inlier_ratio_pooled": tot_i / tot_m if tot_m else float("nan"),
+        "inlier_ratio_median_of_pairs": float(np.median(ratio)),  # paper's Table IV
         "sampson_px_median_of_pairs": float(np.median(med_px)) if len(med_px) else float("nan"),
         "sampson_sq_norm_median_of_pairs": float(
             np.median([s.median_sampson_sq_norm for s in sc if s.num_inliers > 0])
