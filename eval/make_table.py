@@ -59,6 +59,8 @@ def sci(x) -> str:
 
 def main(root: Path) -> None:
     for d in sorted(p for p in root.iterdir() if p.is_dir() and (p / "img").exists()):
+        if not any((d / f"{key}.json").exists() for key, _ in METHODS):
+            continue  # e.g. an encoder sweep's directory
         n_img = len(list((d / "img").iterdir()))
         print(f"## {d.name} ({n_img} frames)\n")
         print(
