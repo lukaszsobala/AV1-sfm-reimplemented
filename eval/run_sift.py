@@ -1,10 +1,14 @@
 """COLMAP SIFT baseline (exhaustive or sequential matching) with shared settings.
 
 Uses the same single shared camera and the same two-view verification options
-as the MV pipeline (av1sfm.colmap_db.two_view_options). Runs on the CPU unless
-pycolmap was built with CUDA.
+as the MV pipeline (av1sfm.colmap_db.two_view_options). Extraction runs on the
+CPU unless pycolmap was built with CUDA. Matching uses COLMAP's own matcher, or
+with `--matcher exact` the exact nearest-neighbour search of av1sfm.sift_exact
+on a PyTorch device (Intel GPU, CUDA or CPU), followed by the same COLMAP
+geometric verification.
 
     uv run python eval/run_sift.py IMAGES DB --matching exhaustive --stats out.json
+    python eval/run_sift.py IMAGES DB --matching sequential --matcher exact --device xpu
 """
 
 from __future__ import annotations
@@ -14,12 +18,29 @@ import json
 import os
 from pathlib import Path
 
+import numpy as np
 import pycolmap
 
 from av1sfm.colmap_db import two_view_options
+from av1sfm.devices import DEVICES, device_name, pick_device, synchronize
 from av1sfm.encode import list_images
 from av1sfm.pipeline import matches_per_image
+from av1sfm.sift_exact import generate_pairs, match_database, match_descriptors
 from av1sfm.timing import Timer
+
+
+def exact_match(database, matching, overlap, device, sift) -> None:
+    """Exact matching of the stored descriptors, then COLMAP's geometric verification."""
+    with pycolmap.Database.open(database) as db:
+        pairs = generate_pairs(db, matching, overlap)
+    match_database(database, pairs, device, sift)
+    synchronize(device)
+    pycolmap.geometric_verification(
+        database,
+        pycolmap.GeometricVerifierOptions(),
+        pycolmap.ExistingMatchedPairingOptions(),
+        two_view_options(),
+    )
 
 
 def main() -> None:
@@ -41,6 +62,14 @@ def main() -> None:
         action="store_true",
         help="exact CPU matching (deterministic, ~40x slower than the default)",
     )
+    ap.add_argument(
+        "--matcher",
+        choices=["colmap", "exact"],
+        default="colmap",
+        help="colmap: COLMAP's matcher; exact: exact matching on a PyTorch device, "
+        "identical to COLMAP's --brute-force result (needs PyTorch)",
+    )
+    ap.add_argument("--device", choices=DEVICES, default="auto", help="--matcher exact only")
     ap.add_argument("--camera-model", default="SIMPLE_RADIAL")
     ap.add_argument("--camera-params", default="")
     ap.add_argument("--stats", type=Path, default=None)
@@ -58,6 +87,10 @@ def main() -> None:
     matching.num_threads = a.num_threads
     matching.sift.cpu_brute_force_matcher = a.brute_force
     device = pycolmap.Device.auto
+    torch_device = pick_device(a.device) if a.matcher == "exact" else None
+    if torch_device is not None:  # not timed: first-call kernel compilation on GPUs
+        warm = np.random.default_rng(0).integers(0, 64, (512, 128), dtype=np.uint8)
+        match_descriptors(warm, warm, device=torch_device)
 
     timer = Timer()
     with timer.stage("extract"):
@@ -65,7 +98,9 @@ def main() -> None:
             a.database, a.image_dir, names, pycolmap.CameraMode.SINGLE, reader, extraction, device
         )
     with timer.stage("match"):
-        if a.matching == "exhaustive":
+        if torch_device is not None:
+            exact_match(a.database, a.matching, a.overlap, torch_device, matching.sift)
+        elif a.matching == "exhaustive":
             pycolmap.match_exhaustive(
                 a.database,
                 matching,
@@ -84,6 +119,8 @@ def main() -> None:
         "config": {
             "max_features": a.max_features,
             "overlap": a.overlap,
+            "matcher": a.matcher,
+            "device": device_name(torch_device) if torch_device is not None else None,
             "num_threads": a.num_threads,
             "brute_force": a.brute_force,
             "camera": [a.camera_model, a.camera_params],
