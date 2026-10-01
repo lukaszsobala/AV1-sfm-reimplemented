@@ -273,12 +273,23 @@ def tracks_to_matches(
                 f"{total:,} matches from {tracks.num_tracks:,} tracks exceed max_matches="
                 f"{max_matches:,}; pass --max-pair-gap (e.g. 10) or a coarser --grid"
             )
-    kp_idx = np.zeros(len(tracks.track), np.int64)
-    keypoints: dict[int, np.ndarray] = {}
-    for f in np.unique(tracks.frame):
-        sel = np.flatnonzero(tracks.frame == f)
-        kp_idx[sel] = np.arange(len(sel))
-        keypoints[int(f)] = tracks.xy[sel].astype(np.float32)
+    # Keypoints of a frame are its observations in track order. Frames are also
+    # replaced by their rank, which fits in 16 bits, so that sorting tens of
+    # millions of matches by frame pair below is a linear-time radix sort.
+    n_obs = len(tracks.track)
+    by_frame = np.argsort(tracks.frame, kind="stable")
+    fs = tracks.frame[by_frame]
+    first = np.flatnonzero(np.r_[True, fs[1:] != fs[:-1]]) if n_obs else np.zeros(0, np.int64)
+    counts = np.diff(np.r_[first, n_obs])
+    n_frames = len(first)
+    rank = np.empty(n_obs, np.uint16 if n_frames <= 1 << 16 else np.int64)
+    rank[by_frame] = np.repeat(np.arange(n_frames), counts)
+    kp_idx = np.empty(n_obs, np.int64)
+    kp_idx[by_frame] = np.arange(n_obs) - np.repeat(first, counts)
+    keypoints: dict[int, np.ndarray] = {
+        int(fs[s]): tracks.xy[by_frame[s : s + c]].astype(np.float32)
+        for s, c in zip(first, counts)
+    }
 
     lengths = tracks.lengths()
     starts = np.concatenate([[0], np.cumsum(lengths)[:-1]]) if len(lengths) else lengths
@@ -295,22 +306,33 @@ def tracks_to_matches(
     pa = np.concatenate(pa_list)
     pb = np.concatenate(pb_list)
 
-    fa, fb = tracks.frame[pa], tracks.frame[pb]
-    swap = fa > fb
-    pa, pb = np.where(swap, pb, pa), np.where(swap, pa, pb)
-    fa, fb = tracks.frame[pa], tracks.frame[pb]
+    # Orient every match from the earlier to the later frame. Tracks are stored
+    # in descending frame order, so normally every pair is swapped.
+    ra, rb = rank[pa], rank[pb]
+    swap = ra > rb
+    if swap.all():
+        pa, pb, ra, rb = pb, pa, rb, ra
+    elif swap.any():
+        pa, pb = np.where(swap, pb, pa), np.where(swap, pa, pb)
+        ra, rb = rank[pa], rank[pb]
     if max_pair_gap is not None:
-        ok = (fb - fa) <= max_pair_gap
-        pa, pb, fa, fb = pa[ok], pb[ok], fa[ok], fb[ok]
+        ok = (tracks.frame[pb] - tracks.frame[pa]) <= max_pair_gap
+        pa, pb, ra, rb = pa[ok], pb[ok], ra[ok], rb[ok]
 
-    o = np.lexsort((fb, fa))
-    pa, pb, fa, fb = pa[o], pb[o], fa[o], fb[o]
-    key = fa * (int(fb.max()) + 1 if len(fb) else 1) + fb
-    cuts = np.flatnonzero(np.diff(key)) + 1
+    # Group by frame pair, keeping the generation order within a pair: the
+    # order of np.lexsort((rb, ra)), as two stable (radix) sorts of 16-bit ranks.
+    if rank.dtype == np.uint16:
+        o = np.argsort(rb, kind="stable")
+        o = o[np.argsort(ra[o], kind="stable")]
+    else:
+        o = np.lexsort((rb, ra))
+    pa, pb, ra, rb = pa[o], pb[o], ra[o], rb[o]
+    cuts = np.flatnonzero((ra[1:] != ra[:-1]) | (rb[1:] != rb[:-1])) + 1
+    bounds = np.r_[0, cuts, len(pa)] if len(pa) else np.zeros(1, np.int64)
+    kp_pairs = np.empty((len(pa), 2), np.uint32)
+    kp_pairs[:, 0] = kp_idx[pa]
+    kp_pairs[:, 1] = kp_idx[pb]
     matches: dict[tuple[int, int], np.ndarray] = {}
-    for seg_a, seg_b in zip(np.split(pa, cuts), np.split(pb, cuts)):
-        if not len(seg_a):
-            continue
-        pair = (int(tracks.frame[seg_a[0]]), int(tracks.frame[seg_b[0]]))
-        matches[pair] = np.stack([kp_idx[seg_a], kp_idx[seg_b]], axis=1).astype(np.uint32)
+    for s, e in zip(bounds[:-1], bounds[1:]):
+        matches[(int(tracks.frame[pa[s]]), int(tracks.frame[pb[s]]))] = kp_pairs[s:e]
     return MatchGraph(keypoints, matches)
