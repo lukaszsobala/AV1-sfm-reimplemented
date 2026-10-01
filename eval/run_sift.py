@@ -29,6 +29,18 @@ def main() -> None:
     ap.add_argument("--matching", choices=["exhaustive", "sequential"], required=True)
     ap.add_argument("--overlap", type=int, default=10, help="sequential: neighbours per image")
     ap.add_argument("--max-features", type=int, default=8192)
+    ap.add_argument(
+        "--num-threads",
+        type=int,
+        default=-1,
+        help="matching threads (-1: all cores). COLMAP's default approximate CPU matcher "
+        "returns different matches for different thread counts (ASSUMPTIONS.md R4)",
+    )
+    ap.add_argument(
+        "--brute-force",
+        action="store_true",
+        help="exact CPU matching (deterministic, ~40x slower than the default)",
+    )
     ap.add_argument("--camera-model", default="SIMPLE_RADIAL")
     ap.add_argument("--camera-params", default="")
     ap.add_argument("--stats", type=Path, default=None)
@@ -43,6 +55,8 @@ def main() -> None:
     extraction = pycolmap.FeatureExtractionOptions()
     extraction.sift.max_num_features = a.max_features
     matching = pycolmap.FeatureMatchingOptions()
+    matching.num_threads = a.num_threads
+    matching.sift.cpu_brute_force_matcher = a.brute_force
     device = pycolmap.Device.auto
 
     timer = Timer()
@@ -70,6 +84,8 @@ def main() -> None:
         "config": {
             "max_features": a.max_features,
             "overlap": a.overlap,
+            "num_threads": a.num_threads,
+            "brute_force": a.brute_force,
             "camera": [a.camera_model, a.camera_params],
             "cuda": pycolmap.has_cuda,
         },
