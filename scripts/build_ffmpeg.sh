@@ -12,7 +12,7 @@
 # Runtime GPU drivers are needed only for hardware encoding: Mesa RADV/ANV
 # (Vulkan Video AV1 encode), a VA-API driver with AV1 encode (VA-API), or
 # Intel's VPL GPU runtime on top of it (QSV). For Intel Lunar Lake on Ubuntu
-# 26.04 see README.md ("Intel Lunar Lake / Arc on Ubuntu 26.04").
+# 26.04 see docs/USAGE.md ("Intel Lunar Lake / Arc on Ubuntu 26.04").
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

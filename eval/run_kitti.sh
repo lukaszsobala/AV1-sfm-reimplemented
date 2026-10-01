@@ -9,7 +9,7 @@
 #   SETS     frame counts to run (default "117 230")
 #   HW       hardware encoders to add as methods mv_<enc>, e.g. HW="qsv vaapi"
 #   TORCH    1: add the PyTorch methods sift_seq_exact / sift_exh_exact (exact SIFT
-#            matching) and disk_seq / disk_exh (DISK + LightGlue); README "GPU matchers"
+#            matching) and disk_seq / disk_exh (DISK + LightGlue); docs/USAGE.md "GPU matchers"
 #   DEVICE   PyTorch device for those: auto (default; Intel GPU, CUDA, else CPU), xpu, cpu
 #   ONLY     run only these methods, e.g. ONLY="mv mv_qsv mv_vaapi" (default: all)
 #   RUN      command prefix for Python tools (default "uv run"; RUN= for an active venv)

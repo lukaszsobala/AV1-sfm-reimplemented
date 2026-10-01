@@ -7,7 +7,7 @@ was first written from a summary of the method section, then checked against
 the paper and against the group's follow-up paper, Zouein, Vibhoothi, Pitié,
 Kokaram, *Efficient dense matching for enhanced Gaussian splatting using AV1
 motion vectors* (arXiv 2605.14629, "the follow-up"). Section 3 of the follow-up
-describes the paper's matcher. Both PDFs are in the repository root.
+describes the paper's matcher.
 
 Each item has a **paper status**:
 

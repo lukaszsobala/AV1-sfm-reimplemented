@@ -1,6 +1,6 @@
 """PyTorch device selection for the optional GPU matchers.
 
-PyTorch is an optional dependency (see README, "GPU matchers"); this module
+PyTorch is an optional dependency (see docs/USAGE.md, "GPU matchers"); this module
 imports it lazily so the rest of the package works without it.
 """
 
@@ -20,7 +20,7 @@ def import_torch():
     except ImportError as e:  # pragma: no cover - depends on the environment
         raise ImportError(
             "PyTorch is needed for this matcher. Intel GPU: uv pip install torch "
-            "--index-url https://download.pytorch.org/whl/xpu (see README)"
+            "--index-url https://download.pytorch.org/whl/xpu (see docs/USAGE.md)"
         ) from e
     return torch
 

@@ -3,7 +3,7 @@
 Same database layout, single shared camera, pair generation and COLMAP
 geometric verification as eval/run_sift.py; features and matches come from
 av1sfm.learned on a PyTorch device (Intel GPU, CUDA, else CPU). Needs PyTorch
-and kornia (README, "GPU matchers").
+and kornia (docs/USAGE.md, "GPU matchers").
 
     python eval/run_lightglue.py IMAGES DB --matching sequential --device xpu --stats out.json
 """
