@@ -10,6 +10,7 @@ expected from floating-point arithmetic; large ones mean a device problem).
 from __future__ import annotations
 
 import argparse
+import sys
 import tempfile
 from pathlib import Path
 
@@ -45,6 +46,7 @@ def main() -> None:
     ap.add_argument("image1", type=Path)
     ap.add_argument("--device", choices=DEVICES, default="auto")
     a = ap.parse_args()
+    sys.stdout.reconfigure(line_buffering=True)  # keep output if the device aborts
     dev, cpu = pick_device(a.device), pick_device("cpu")
     print(f"device: {device_name(dev)}")
 
@@ -76,12 +78,62 @@ def main() -> None:
 
     # LightGlue on identical (CPU-extracted) features.
     fc0, fc1 = f["cpu"]
-    lc = nets["cpu"].match(fc0, fc1)
-    ld = nets["device"].match(on(dev, fc0), on(dev, fc1))
-    print(
-        f"LightGlue (same input): {len(lc)} matches cpu, {len(ld)} device, "
-        f"same matches: {overlap(lc, ld):.3f}"
-    )
+    lightglue_variants(nets, on(dev, fc0), on(dev, fc1), fc0, fc1)
+
+
+def configure(net: DiskLightGlue, prune: bool, early_stop: bool, sdpa: bool) -> None:
+    lg = net.lightglue
+    lg.conf.width_confidence = 0.99 if prune else -1
+    lg.conf.depth_confidence = 0.95 if early_stop else -1
+    for mod in lg.modules():
+        if hasattr(mod, "has_sdp"):
+            mod.has_sdp = sdpa and hasattr(net.torch.nn.functional, "scaled_dot_product_attention")
+
+
+def lightglue_variants(nets, fd0, fd1, fc0, fc1) -> None:
+    """Locate a device problem in LightGlue: switch its parts off one at a time."""
+    # Safest first: a device-side assertion aborts the process.
+    variants = {
+        "none of the three": (False, False, False),
+        "no pruning": (False, True, True),
+        "no SDPA attention": (True, True, False),
+        "no early stop": (True, False, True),
+        "default": (True, True, True),
+    }
+    # Layer by layer, with pruning and early stopping off (fixed shapes).
+    for net in nets.values():
+        configure(net, False, False, True)
+    outs = {}
+    for key, (f0, f1) in {"cpu": (fc0, fc1), "device": (fd0, fd1)}.items():
+        lg, rec = nets[key].lightglue, []
+        hooks = [
+            m.register_forward_hook(lambda _m, _i, o, rec=rec: rec.append(o))
+            for m in [lg.input_proj, *lg.transformers, lg.log_assignment[-1]]
+        ]
+        nets[key].match(f0, f1)
+        for h in hooks:
+            h.remove()
+        flat = []
+        for o in rec:
+            flat.extend(o if isinstance(o, tuple) else (o,))
+        outs[key] = [t.float().cpu() for t in flat]
+    n_layers = len(nets["cpu"].lightglue.transformers)
+    names = ["input_proj 0", "input_proj 1"]
+    names += [f"layer {i} desc{j}" for i in range(n_layers) for j in (0, 1)]
+    names += ["assignment scores", "assignment sim"]
+    for name, a, b in zip(names, outs["cpu"], outs["device"], strict=False):
+        rel = (a - b).abs().max().item() / max(a.abs().max().item(), 1e-12)
+        print(f"  {name:18s} max rel. diff {rel:.2e}")
+
+    for name, cfg in variants.items():
+        for net in nets.values():
+            configure(net, *cfg)
+        lc = nets["cpu"].match(fc0, fc1)
+        ld = nets["device"].match(fd0, fd1)
+        print(
+            f"  LightGlue, {name:18s}: {len(lc):5d} cpu, {len(ld):5d} device, "
+            f"same: {overlap(lc, ld):.3f}"
+        )
 
 
 if __name__ == "__main__":
