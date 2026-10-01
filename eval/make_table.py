@@ -21,6 +21,10 @@ METHODS = [
     ("mv_vulkan", "AV1 MV, Vulkan Video (COLMAP verification)"),
     ("sift_seq", "SIFT sequential (overlap 10)"),
     ("sift_exh", "SIFT exhaustive"),
+    ("sift_seq_exact", "SIFT sequential, exact matching (PyTorch)"),
+    ("sift_exh_exact", "SIFT exhaustive, exact matching (PyTorch)"),
+    ("disk_seq", "DISK + LightGlue sequential (overlap 10)"),
+    ("disk_exh", "DISK + LightGlue exhaustive"),
 ]
 
 

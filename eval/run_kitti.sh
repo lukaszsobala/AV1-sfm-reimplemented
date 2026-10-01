@@ -8,19 +8,26 @@
 # Options (environment):
 #   SETS     frame counts to run (default "117 230")
 #   HW       hardware encoders to add as methods mv_<enc>, e.g. HW="qsv vaapi"
+#   TORCH    1: add the PyTorch methods sift_seq_exact / sift_exh_exact (exact SIFT
+#            matching) and disk_seq / disk_exh (DISK + LightGlue); README "GPU matchers"
+#   DEVICE   PyTorch device for those: auto (default; Intel GPU, CUDA, else CPU), xpu, cpu
 #   ONLY     run only these methods, e.g. ONLY="mv mv_qsv mv_vaapi" (default: all)
 #   RUN      command prefix for Python tools (default "uv run"; RUN= for an active venv)
 #
 #   RUN= HW="qsv vaapi" ONLY="mv mv_qsv mv_vaapi" SETS=117 bash eval/run_kitti.sh
+#   RUN= TORCH=1 ONLY="sift_seq_exact disk_seq" SETS=117 bash eval/run_kitti.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 SETS="${SETS:-117 230}"
 HW="${HW:-}"
+TORCH="${TORCH:-}"
+DEVICE="${DEVICE:-auto}"
 ONLY="${ONLY:-}"
 RUN="${RUN-uv run}"
 METHODS="mv mv_trust mv_svt sift_seq sift_exh"
 for e in $HW; do METHODS="$METHODS mv_$e"; done
+[ -n "$TORCH" ] && METHODS="$METHODS sift_seq_exact sift_exh_exact disk_seq disk_exh"
 want() { [ -z "$ONLY" ] || [[ " $ONLY " == *" $1 "* ]]; }
 # Steps whose output already exists are skipped; delete runs/kitti<N> to redo.
 step() { local out="$1"; shift; [ -e "$out" ] && { echo "skip: $out exists"; return; }; "$@"; }
@@ -60,6 +67,22 @@ for N in $SETS; do
     --overlap 10 --camera-params "$K" --stats "$R/sift_seq.json"
   want sift_exh && step "$R/sift_exh.json" $RUN python eval/run_sift.py "$R/img" "$R/sift_exh.db" --matching exhaustive \
     --camera-params "$K" --stats "$R/sift_exh.json"
+
+  # --- PyTorch baselines (TORCH=1): same pairs and verification as above ---
+  # Exact SIFT matching (= COLMAP's --brute-force result, ASSUMPTIONS.md R4).
+  for P in seq:sequential exh:exhaustive; do
+    M="sift_${P%%:*}_exact"
+    [[ " $METHODS " == *" $M "* ]] && want "$M" || continue
+    step "$R/$M.json" $RUN python eval/run_sift.py "$R/img" "$R/$M.db" --matching "${P#*:}" \
+      --overlap 10 --matcher exact --device "$DEVICE" --camera-params "$K" --stats "$R/$M.json"
+  done
+  # DISK + LightGlue (the paper's Table I learned baseline).
+  for P in seq:sequential exh:exhaustive; do
+    M="disk_${P%%:*}"
+    [[ " $METHODS " == *" $M "* ]] && want "$M" || continue
+    step "$R/$M.json" $RUN python eval/run_lightglue.py "$R/img" "$R/$M.db" --matching "${P#*:}" \
+      --overlap 10 --device "$DEVICE" --camera-params "$K" --stats "$R/$M.json"
+  done
 
   # --- identical pairwise geometric scoring of raw matches ---
   for M in $METHODS; do

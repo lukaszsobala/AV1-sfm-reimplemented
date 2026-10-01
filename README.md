@@ -147,6 +147,43 @@ Compare against the libaom numbers in ASSUMPTIONS.md (E4: 97.7 % of MVs to the
 previous frame, quarter-pel). If most MVs reference older frames, try
 `--prev-only`. The quality setting (`--qp`) may also need re-tuning (E5d).
 
+### GPU matchers (PyTorch: Intel GPU, NVIDIA GPU or CPU)
+
+Two optional baselines run on a PyTorch device (`--device auto` picks an Intel
+GPU, then CUDA, then the CPU):
+
+- **Exact SIFT matching**, `eval/run_sift.py --matcher exact`
+  ([`av1sfm/sift_exact.py`](src/av1sfm/sift_exact.py)). It returns the same
+  matches as COLMAP's exact CPU matcher (`--brute-force`), pair for pair, on
+  any machine and thread count. COLMAP's default CPU matcher is approximate
+  and its result depends on the thread count (ASSUMPTIONS.md R4); its exact
+  matcher is about 40× slower. On a GPU each pair is one matrix product of
+  the two descriptor sets.
+- **DISK + LightGlue**, `eval/run_lightglue.py`
+  ([`av1sfm/learned.py`](src/av1sfm/learned.py)): the learned baseline of the
+  paper's Table I, using kornia's ports of both networks.
+
+Both use COLMAP's own pair generation and geometric verification and write
+the same database layout as the other methods, so scoring and mapping are
+unchanged. Install into the active virtualenv:
+
+```bash
+# Intel GPU (Lunar Lake, Arc): PyTorch's XPU build. It uses the GPU compute
+# runtime (intel-opencl-icd, libze-intel-gpu1); oneAPI is not needed.
+uv pip install torch --index-url https://download.pytorch.org/whl/xpu
+uv pip install kornia
+python -c "import torch; print(torch.xpu.is_available(), torch.xpu.get_device_name())"
+
+RUN= TORCH=1 ONLY="sift_seq_exact disk_seq" SETS=117 bash eval/run_kitti.sh
+```
+
+Install torch before kornia; otherwise kornia pulls PyTorch's default (CUDA)
+build from PyPI. On NVIDIA, `uv pip install torch kornia` is enough. Don't run
+`uv sync` afterwards: it removes packages that are not in `uv.lock`. The DISK
+(`depth`) and LightGlue (`disk_lightglue`) weights are downloaded from GitHub
+on first use into `~/.cache/torch/hub`. `TORCH=1` adds `sift_seq_exact`,
+`sift_exh_exact`, `disk_seq` and `disk_exh`; `DEVICE=cpu` forces the CPU.
+
 ## Reproducing the evaluation
 
 ```bash
