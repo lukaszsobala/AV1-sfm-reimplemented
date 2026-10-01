@@ -41,9 +41,11 @@ class DiskLightGlue:
         torch = import_torch()
         try:
             from kornia.feature import DISK, LightGlue
+            from kornia.feature.disk.detector import heatmap_to_keypoints
         except ImportError as e:  # pragma: no cover - depends on the environment
             raise ImportError("DISK + LightGlue needs kornia: uv pip install kornia") from e
         self.torch, self.device, self.max_keypoints = torch, device, max_keypoints
+        self.heatmap_to_keypoints = heatmap_to_keypoints
         self.disk = DISK.from_pretrained("depth", device=device).eval()
         self.lightglue = LightGlue("disk").to(device).eval()
         # kornia has no point-pruning threshold for Intel GPUs: use its CUDA value.
@@ -55,12 +57,22 @@ class DiskLightGlue:
         bgr = cv2.imread(str(image), cv2.IMREAD_COLOR)
         if bgr is None:
             raise FileNotFoundError(image)
+        torch = self.torch
         rgb = np.ascontiguousarray(bgr[:, :, ::-1])
-        t = self.torch.from_numpy(rgb).to(self.device).permute(2, 0, 1)[None].float() / 255.0
-        with self.torch.inference_mode():
-            f = self.disk(t, n=self.max_keypoints, window_size=5, pad_if_not_divisible=True)[0]
         h, w = rgb.shape[:2]
-        return Features(f.keypoints.float(), f.descriptors.float(), (w, h))
+        t = torch.from_numpy(rgb).to(self.device).permute(2, 0, 1)[None].float() / 255.0
+        t = torch.nn.functional.pad(t, (0, -w % 16, 0, -h % 16))  # DISK needs multiples of 16
+        with torch.inference_mode():
+            heatmap, dense = self.disk.heatmap_and_dense_descriptors(t)
+            # Keypoint selection (NMS, top-n) on the CPU: on PyTorch XPU 2.14 the
+            # boolean indexing in kornia's selection gives inconsistent sizes.
+            kp = self.heatmap_to_keypoints(
+                heatmap[:, :, :h, :w].float().cpu(), n=self.max_keypoints, window_size=5
+            )[0]
+            xy = kp.xys.to(self.device)
+            desc = dense[0][:, xy[:, 1], xy[:, 0]].T
+            desc = torch.nn.functional.normalize(desc, dim=-1)
+        return Features(xy.float(), desc.float(), (w, h))
 
     def match(self, f0: Features, f1: Features) -> np.ndarray:
         """Raw matches (k, 2) uint32, indices into f0 / f1."""
