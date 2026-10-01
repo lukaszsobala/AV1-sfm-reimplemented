@@ -83,7 +83,99 @@ def main() -> None:
 
     # LightGlue on identical (CPU-extracted) features.
     fc0, fc1 = f["cpu"]
+    isolate_modules(nets, fc0, fc1, dev)
+    primitives(dev)
     lightglue_variants(nets, on(dev, fc0), on(dev, fc1), fc0, fc1)
+
+
+def rel_diff(a, b) -> float:
+    a, b = a.float().cpu(), b.float().cpu()
+    return (a - b).abs().max().item() / max(a.abs().max().item(), 1e-12)
+
+
+def isolate_modules(nets, fc0, fc1, dev) -> None:
+    """Each module of the positional encoding and LightGlue layer 0, run on the
+    device with exactly the inputs it received on the CPU (no error propagation)."""
+    torch = nets["cpu"].torch
+    cpu_lg, dev_lg = nets["cpu"].lightglue, nets["device"].lightglue
+    configure(nets["cpu"], False, True)
+    wanted = [
+        (n, m)
+        for n, m in cpu_lg.named_modules()
+        if n == "posenc" or n.startswith(("posenc.", "transformers.0"))
+    ]
+    seen, rec = set(), []
+
+    def hook(name):
+        def f(_m, args, kwargs, out):
+            if name not in seen:  # first call only (self-attention runs on both images)
+                seen.add(name)
+                rec.append((name, args, kwargs, out))
+
+        return f
+
+    hooks = [m.register_forward_hook(hook(n), with_kwargs=True) for n, m in wanted]
+    nets["cpu"].match(fc0, fc1)
+    for h in hooks:
+        h.remove()
+
+    def to_dev(x):
+        if isinstance(x, torch.Tensor):
+            return x.to(dev)
+        if isinstance(x, (tuple, list)):
+            return type(x)(to_dev(v) for v in x)
+        return x
+
+    def tensors(x):
+        if isinstance(x, torch.Tensor):
+            return [x]
+        if isinstance(x, (tuple, list)):
+            return [t for v in x for t in tensors(v)]
+        return []
+
+    dev_mods = dict(dev_lg.named_modules())
+    print("LightGlue modules, same inputs on both devices (max rel. diff of the output):")
+    for name, args, kwargs, out in rec:
+        with torch.inference_mode():
+            got = dev_mods[name](*to_dev(args), **{k: to_dev(v) for k, v in kwargs.items()})
+        diffs = [rel_diff(a, b) for a, b in zip(tensors(out), tensors(got), strict=False)]
+        kind = type(dev_mods[name]).__name__
+        print(f"  {name or '(root)':40s} {kind:34s} {max(diffs, default=float('nan')):.2e}")
+
+
+def primitives(dev) -> None:
+    """Single operations used by LightGlue's layers, on random inputs."""
+    import torch
+    from kornia.feature.lightglue import apply_cached_rotary_emb, rotate_half
+
+    g = torch.Generator().manual_seed(0)
+    x = torch.randn(1, 4, 5000, 64, generator=g)
+    freqs = torch.randn(2, 1, 1, 5000, 64, generator=g)
+    w = torch.randn(256, 512, generator=g) / 16
+    ops = {
+        "rotate_half (unflatten/unbind/stack)": lambda t: rotate_half(t[0]),
+        "apply_cached_rotary_emb": lambda t: apply_cached_rotary_emb(t[1], t[0]),
+        "x[..., ::2] (strided view)": lambda t: t[0][..., ::2].contiguous(),
+        "transpose(1, 2).contiguous()": lambda t: t[0].transpose(1, 2).contiguous(),
+        "softmax(-1)": lambda t: torch.softmax(t[0], -1),
+        "einsum q k^T": lambda t: torch.einsum("...id,...jd->...ij", t[0], t[0]),
+        "scaled_dot_product_attention": lambda t: torch.nn.functional.scaled_dot_product_attention(
+            t[0], t[0], t[0]
+        ),
+        "layer_norm": lambda t: torch.nn.functional.layer_norm(t[0], (64,)),
+        "gelu": lambda t: torch.nn.functional.gelu(t[0]),
+        "matmul (5000x256 @ 256x512)": lambda t: t[0].reshape(-1, 256) @ t[2],
+        "cos / sin": lambda t: torch.cos(t[0]) + torch.sin(t[0]),
+    }
+    print("Primitive operations, random inputs (max rel. diff):")
+    for name, op in ops.items():
+        with torch.inference_mode():
+            a = op((x, freqs, w))
+            try:
+                b = op((x.to(dev), freqs.to(dev), w.to(dev)))
+                print(f"  {name:38s} {rel_diff(a, b):.2e}")
+            except RuntimeError as e:  # report and continue
+                print(f"  {name:38s} FAILED: {type(e).__name__}: {e}")
 
 
 def configure(net: DiskLightGlue, early_stop: bool, sdpa: bool) -> None:
