@@ -140,7 +140,8 @@ through `scaled_dot_product_attention`. On Intel GPUs it also triggers bug 2.
 **What av1sfm does:** the same attention kernels on every device, float16 on
 any GPU. On the Lunar Lake GPU, float16 attention with pruning took 166 ms per
 pair against 923 ms in float32 without pruning, and gave the same matches as
-the CPU (2,666 of 2,666).
+the CPU (2,666 of 2,666). On all 117 KITTI frames, matching took 173 s instead
+of 1,037 s, with practically the same matches and reconstruction.
 
 ### 6. `LightGlue` prints to stdout
 
@@ -165,7 +166,7 @@ about 40× slower (1,348 s against 33 s).
 and `eval/run_sift.py --num-threads N` fixes the thread count. `--matcher
 exact` runs the exact search on a GPU with PyTorch: the same matches as
 COLMAP's exact matcher, pair for pair (1,021,246 raw matches over 1,115 pairs),
-in 18.8 s on the Lunar Lake GPU. ASSUMPTIONS.md R4.
+in 16.1 s on the Lunar Lake GPU, including verification. ASSUMPTIONS.md R4.
 
 ### 8. Geometric verification is not deterministically seeded
 

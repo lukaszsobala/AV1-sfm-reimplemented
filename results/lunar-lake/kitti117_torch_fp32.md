@@ -7,8 +7,8 @@
 | AV1 MV, VA-API (COLMAP verification) | 0.5 | 33.2 | 718 | 89.8 | 10,839 | 129,221 | 128,076 | 4,415 | 0.988 | – | 0.308 | 1.83e-07 |
 | SIFT sequential (overlap 10) | 7.5 | 14.6 | 578 | 72.2 | 5,117 | 16,013 | 15,717 | 1,115 | 0.976 | 0.972 | 0.162 | 5.05e-08 |
 | SIFT exhaustive | 7.7 | 87.7 | 763 | 95.3 | 5,117 | 23,891 | 21,633 | 6,701 | 0.905 | 0.542 | 0.247 | 1.19e-07 |
-| SIFT sequential, exact matching (PyTorch) | 7.6 | 16.1 | 385 | 48.1 | 5,117 | 17,457 | 17,141 | 1,115 | 0.976 | 0.971 | 0.159 | 4.92e-08 |
-| DISK + LightGlue sequential (overlap 10) | 18.7 | 172.7 | 134 | 16.8 | 4,623 | 47,778 | 47,724 | 1,115 | 0.993 | 0.993 | 0.345 | 2.30e-07 |
+| SIFT sequential, exact matching (PyTorch) | 8.1 | 18.8 | 355 | 44.3 | 5,117 | 17,457 | 17,141 | 1,115 | 0.976 | 0.971 | 0.159 | 4.92e-08 |
+| DISK + LightGlue sequential (overlap 10) | 18.2 | 1,036.5 | 180 | 22.5 | 4,623 | 47,805 | 47,752 | 1,115 | 0.993 | 0.993 | 0.345 | 2.30e-07 |
 
 SfM, intrinsics fixed at calibration:
 
@@ -19,8 +19,8 @@ SfM, intrinsics fixed at calibration:
 | AV1 MV, VA-API (COLMAP verification) | 117/117 | 114,328 | 0.598 | 8.75 | 188.5 | 7.4 |
 | SIFT sequential (overlap 10) | 117/117 | 33,765 | 0.378 | 7.44 | 33.3 | 1.7 |
 | SIFT exhaustive | 117/117 | 36,733 | 0.390 | 7.47 | 50.2 | 2.3 |
-| SIFT sequential, exact matching (PyTorch) | 117/117 | 35,350 | 0.381 | 7.38 | 34.3 | 1.9 |
-| DISK + LightGlue sequential (overlap 10) | 117/117 | 44,202 | 0.893 | 11.04 | 111.9 | 8.4 |
+| SIFT sequential, exact matching (PyTorch) | 117/117 | 35,363 | 0.381 | 7.38 | 37.3 | 3.2 |
+| DISK + LightGlue sequential (overlap 10) | 117/117 | 44,233 | 0.893 | 11.03 | 107.6 | 4.5 |
 
 SfM, COLMAP default intrinsics refinement:
 
@@ -31,5 +31,5 @@ SfM, COLMAP default intrinsics refinement:
 | AV1 MV, VA-API (COLMAP verification) | 117/117 | 115,251 | 0.594 | 8.72 | 257.2 | 21.7 |
 | SIFT sequential (overlap 10) | 117/117 | 33,768 | 0.372 | 7.45 | 45.2 | 4.2 |
 | SIFT exhaustive | 117/117 | 36,722 | 0.384 | 7.47 | 70.7 | 5.8 |
-| SIFT sequential, exact matching (PyTorch) | 117/117 | 35,323 | 0.375 | 7.39 | 48.0 | 2.9 |
-| DISK + LightGlue sequential (overlap 10) | 117/117 | 44,244 | 0.890 | 11.03 | 173.3 | 7.0 |
+| SIFT sequential, exact matching (PyTorch) | 117/117 | 35,323 | 0.375 | 7.39 | 49.2 | 3.8 |
+| DISK + LightGlue sequential (overlap 10) | 117/117 | 44,285 | 0.890 | 11.02 | 164.0 | 7.8 |

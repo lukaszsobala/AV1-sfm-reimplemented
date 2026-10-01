@@ -146,8 +146,9 @@ performance) with
 before the median-of-pairs statistic was added, hence the dashes.
 Vulkan Video AV1 encode was not exposed by the driver (ASSUMPTIONS.md E5b).
 Sources: [`results/lunar-lake/kitti117_torch.md`](../results/lunar-lake/kitti117_torch.md)
-(these tables) and [`results/lunar-lake/kitti117.md`](../results/lunar-lake/kitti117.md)
-(an earlier SIFT run).
+(these tables), [`kitti117_torch_fp32.md`](../results/lunar-lake/kitti117_torch_fp32.md)
+(DISK + LightGlue before the speed-ups: float32 attention, no pruning) and
+[`kitti117.md`](../results/lunar-lake/kitti117.md) (an earlier SIFT run).
 
 | Method | Pre-processing (s) | Feature matching (s) | CPU % (1 core = 100) | CPU % of machine | Keypoints / img | Raw matches / img | Verified matches / img | Scored pairs | Inlier ratio (pooled) | Inlier ratio (median of pairs) | Median Sampson (px) | Median SE (normalised²) |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -156,8 +157,8 @@ Sources: [`results/lunar-lake/kitti117_torch.md`](../results/lunar-lake/kitti117
 | AV1 MV, VA-API (COLMAP verification) | 0.5 | 33.2 | 718 | 89.8 | 10,839 | 129,221 | 128,076 | 4,415 | 0.988 | – | 0.308 | 1.83e-07 |
 | SIFT sequential (overlap 10) | 7.5 | 14.6 | 578 | 72.2 | 5,117 | 16,013 | 15,717 | 1,115 | 0.976 | 0.972 | 0.162 | 5.05e-08 |
 | SIFT exhaustive | 7.7 | 87.7 | 763 | 95.3 | 5,117 | 23,891 | 21,633 | 6,701 | 0.905 | 0.542 | 0.247 | 1.19e-07 |
-| SIFT sequential, exact matching (PyTorch) | 8.1 | 18.8 | 355 | 44.3 | 5,117 | 17,457 | 17,141 | 1,115 | 0.976 | 0.971 | 0.159 | 4.92e-08 |
-| DISK + LightGlue sequential (overlap 10) | 18.2 | 1,036.5 | 180 | 22.5 | 4,623 | 47,805 | 47,752 | 1,115 | 0.993 | 0.993 | 0.345 | 2.30e-07 |
+| SIFT sequential, exact matching (PyTorch) | 7.6 | 16.1 | 385 | 48.1 | 5,117 | 17,457 | 17,141 | 1,115 | 0.976 | 0.971 | 0.159 | 4.92e-08 |
+| DISK + LightGlue sequential (overlap 10) | 18.7 | 172.7 | 134 | 16.8 | 4,623 | 47,778 | 47,724 | 1,115 | 0.993 | 0.993 | 0.345 | 2.30e-07 |
 
 SfM, intrinsics fixed at calibration:
 
@@ -168,8 +169,8 @@ SfM, intrinsics fixed at calibration:
 | AV1 MV, VA-API (COLMAP verification) | 117/117 | 114,328 | 0.598 | 8.75 | 188.5 | 7.4 |
 | SIFT sequential (overlap 10) | 117/117 | 33,765 | 0.378 | 7.44 | 33.3 | 1.7 |
 | SIFT exhaustive | 117/117 | 36,733 | 0.390 | 7.47 | 50.2 | 2.3 |
-| SIFT sequential, exact matching (PyTorch) | 117/117 | 35,363 | 0.381 | 7.38 | 37.3 | 3.2 |
-| DISK + LightGlue sequential (overlap 10) | 117/117 | 44,233 | 0.893 | 11.03 | 107.6 | 4.5 |
+| SIFT sequential, exact matching (PyTorch) | 117/117 | 35,350 | 0.381 | 7.38 | 34.3 | 1.9 |
+| DISK + LightGlue sequential (overlap 10) | 117/117 | 44,202 | 0.893 | 11.04 | 111.9 | 8.4 |
 
 SfM, COLMAP default intrinsics refinement:
 
@@ -180,8 +181,8 @@ SfM, COLMAP default intrinsics refinement:
 | AV1 MV, VA-API (COLMAP verification) | 117/117 | 115,251 | 0.594 | 8.72 | 257.2 | 21.7 |
 | SIFT sequential (overlap 10) | 117/117 | 33,768 | 0.372 | 7.45 | 45.2 | 4.2 |
 | SIFT exhaustive | 117/117 | 36,722 | 0.384 | 7.47 | 70.7 | 5.8 |
-| SIFT sequential, exact matching (PyTorch) | 117/117 | 35,323 | 0.375 | 7.39 | 49.2 | 3.8 |
-| DISK + LightGlue sequential (overlap 10) | 117/117 | 44,285 | 0.890 | 11.02 | 164.0 | 7.8 |
+| SIFT sequential, exact matching (PyTorch) | 117/117 | 35,323 | 0.375 | 7.39 | 48.0 | 2.9 |
+| DISK + LightGlue sequential (overlap 10) | 117/117 | 44,244 | 0.890 | 11.03 | 173.3 | 7.0 |
 
 ## Findings
 
@@ -222,16 +223,17 @@ SfM, COLMAP default intrinsics refinement:
   0.60 px; SIFT sequential 55 s for 34 k points at 0.38 px. MV matching buys
   density, not end-to-end speed, unless verification is skipped (trusted MVs).
 - **Exact SIFT matching on the GPU (Lunar Lake).** Matching plus verification
-  takes 18.8 s, against 14.6 s for COLMAP's approximate CPU matcher, at
-  about half the CPU use (355 % vs 578 %). The matches are those of COLMAP's
+  takes 16.1 s, against 14.6 s for COLMAP's approximate CPU matcher, at
+  two thirds of the CPU use (385 % vs 578 %). The matches are those of COLMAP's
   exact brute-force matcher (17,457 raw per image, as in the cloud run),
   which on the cloud VM's CPU took 1,348 s against 33 s for the approximate
   one (ASSUMPTIONS.md R4). Exact matching gives 9 % more raw matches than
   the approximate matcher, and 35.4 k points instead of 33.8 k at the same
   0.38 px reprojection error.
-- **DISK + LightGlue (Lunar Lake GPU)** is the slowest front end: 1,055 s
-  (18 s extraction, 1,037 s matching, 0.93 s per pair; 180 % CPU, so mostly
-  waiting on the GPU). That is 31× VA-API's 34 s and 48× SIFT sequential's 22 s.
+- **DISK + LightGlue (Lunar Lake GPU)** is the slowest front end: 191 s
+  (19 s extraction, 173 s matching and verification for 1,115 pairs). That is
+  6× VA-API's 34 s, 2.2× libaom's 87 s and 9× SIFT sequential's 22 s; the
+  paper's Table I has it at 9× its libaom MV front end.
   Its raw matches have the highest inlier ratio (0.993), but they are less
   precise: median Sampson error 0.35 px (SIFT 0.16 px, VA-API 0.31 px) and
   0.89 px reprojection error (SIFT 0.38 px, VA-API 0.60 px). It gives 44 k
@@ -239,8 +241,10 @@ SfM, COLMAP default intrinsics refinement:
   This is the pattern of the paper's Table I, which has DISK + LightGlue on a
   T4 at 1,067 s front end and 85 k points at 1.07 px, against SIFT
   sequential's 55 k points at 0.30 px (on its own 1080×1920 clip).
-  This run used float32 attention without point pruning and the dual softmax
-  on the CPU (ASSUMPTIONS.md R8); the current defaults are faster.
+  With float32 attention, no point pruning and the dual softmax on the CPU,
+  matching took 1,037 s instead of 173 s, for practically the same result
+  (47,805 against 47,778 raw matches per image; 44,233 against 44,202 points,
+  both at 0.89 px; ASSUMPTIONS.md R8).
 - **SVT-AV1** encodes 5× faster than libaom, but it codes fewer, larger
   blocks (129 k track seeds vs 261 k) and its tracks are shorter (mean 4.0
   vs 11.3 frames; only about half its MVs point to the previous frame,

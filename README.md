@@ -78,11 +78,8 @@ residential area, 1241×376 pixels), on an Intel Lunar Lake laptop. Every method
 | AV1 motion vectors, libaom software encoder | 87 s | 202,000 | 0.89 px |
 | SIFT, sequential matching | 22 s | 34,000 | 0.38 px |
 | SIFT, exhaustive matching | 95 s | 37,000 | 0.39 px |
-| SIFT, exact matching on the GPU | 27 s | 35,000 | 0.38 px |
-| DISK + LightGlue on the GPU | 1,055 s* | 44,000 | 0.89 px |
-
-\* Measured before the current LightGlue speed-ups, which were 5.6× faster
-per image pair in a test; the full run is being repeated.
+| SIFT, exact matching on the GPU | 24 s | 35,000 | 0.38 px |
+| DISK + LightGlue on the GPU | 191 s | 44,000 | 0.89 px |
 
 - **Density.** Motion vectors give 3–6× more 3D points than SIFT, the
   paper's main qualitative result. Each 3D point is also seen in more images
@@ -96,8 +93,10 @@ per image pair in a test; the full run is being repeated.
   thousands of matches geometrically, and later bundle adjustment over many
   more points, cost more than SIFT's whole pipeline. Trusting the motion
   vectors without the geometric check cuts matching from 189 s to 20 s with
-  the same reconstruction (cloud measurement). Motion vectors buy density
-  first; speed only where verification can be skipped.
+  the same reconstruction (cloud measurement). Against the learned
+  DISK + LightGlue baseline on the same GPU, the hardware-encoder route reaches
+  its matches 6× sooner (34 s against 191 s). Compared with SIFT, motion
+  vectors buy density first, and speed only where verification can be skipped.
 - **Video versus photo collections.** On Gerrard Hall and Person Hall, photo
   collections with large jumps between shots, motion-vector matches are much
   less reliable (67–68 % inliers against SIFT's 97–98 %) unless libaom's slower
