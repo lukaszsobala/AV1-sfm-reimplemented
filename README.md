@@ -305,15 +305,19 @@ SfM, COLMAP default intrinsics refinement:
 Run by the repository owner on an Intel Lunar Lake laptop (Ubuntu 26.04,
 Intel graphics PPA, system FFmpeg, power profile "Balanced", so not peak
 performance) with
-`RUN= HW="qsv vaapi" ONLY="mv mv_qsv mv_vaapi" SETS=117 bash eval/run_kitti.sh`.
+`RUN= HW="qsv vaapi" ONLY="mv mv_qsv mv_vaapi" SETS=117 bash eval/run_kitti.sh`, then
+`RUN= ONLY="sift_seq sift_exh" SETS=117 bash eval/run_kitti.sh`. The MV rows were scored
+before the median-of-pairs statistic was added, hence the dashes.
 Vulkan Video AV1 encode was not exposed by the driver (ASSUMPTIONS.md E5b).
 Source: [`results/lunar-lake/kitti117.md`](results/lunar-lake/kitti117.md).
 
-| Method | Pre-processing (s) | Feature matching (s) | CPU % (1 core = 100) | CPU % of machine | Keypoints / img | Raw matches / img | Verified matches / img | Scored pairs | Inlier ratio | Median Sampson (px) | Median SE (normalised²) |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| AV1 MV, libaom (COLMAP verification) | 4.5 | 82.1 | 721 | 90.2 | 20,757 | 351,240 | 343,857 | 5,171 | 0.970 | 0.611 | 7.23e-07 |
-| AV1 MV, Intel QSV (COLMAP verification) | 0.6 | 39.5 | 726 | 90.8 | 10,261 | 157,105 | 154,600 | 4,857 | 0.977 | 0.472 | 4.31e-07 |
-| AV1 MV, VA-API (COLMAP verification) | 0.5 | 33.2 | 718 | 89.8 | 10,839 | 129,221 | 128,076 | 4,415 | 0.988 | 0.308 | 1.83e-07 |
+| Method | Pre-processing (s) | Feature matching (s) | CPU % (1 core = 100) | CPU % of machine | Keypoints / img | Raw matches / img | Verified matches / img | Scored pairs | Inlier ratio (pooled) | Inlier ratio (median of pairs) | Median Sampson (px) | Median SE (normalised²) |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| AV1 MV, libaom (COLMAP verification) | 4.5 | 82.1 | 721 | 90.2 | 20,757 | 351,240 | 343,857 | 5,171 | 0.970 | – | 0.611 | 7.23e-07 |
+| AV1 MV, Intel QSV (COLMAP verification) | 0.6 | 39.5 | 726 | 90.8 | 10,261 | 157,105 | 154,600 | 4,857 | 0.977 | – | 0.472 | 4.31e-07 |
+| AV1 MV, VA-API (COLMAP verification) | 0.5 | 33.2 | 718 | 89.8 | 10,839 | 129,221 | 128,076 | 4,415 | 0.988 | – | 0.308 | 1.83e-07 |
+| SIFT sequential (overlap 10) | 7.7 | 15.0 | 570 | 71.3 | 5,117 | 15,961 | 15,664 | 1,115 | 0.975 | 0.971 | 0.162 | 5.06e-08 |
+| SIFT exhaustive | 7.8 | 90.0 | 755 | 94.3 | 5,117 | 23,901 | 21,653 | 6,675 | 0.906 | 0.544 | 0.245 | 1.18e-07 |
 
 SfM, intrinsics fixed at calibration:
 
@@ -322,6 +326,8 @@ SfM, intrinsics fixed at calibration:
 | AV1 MV, libaom (COLMAP verification) | 117/117 | 201,749 | 0.893 | 10.49 | 759.6 | 22.0 |
 | AV1 MV, Intel QSV (COLMAP verification) | 117/117 | 99,962 | 0.807 | 9.97 | 252.7 | 10.1 |
 | AV1 MV, VA-API (COLMAP verification) | 117/117 | 114,328 | 0.598 | 8.75 | 188.5 | 7.4 |
+| SIFT sequential (overlap 10) | 117/117 | 33,796 | 0.378 | 7.44 | 34.0 | 1.6 |
+| SIFT exhaustive | 117/117 | 36,708 | 0.390 | 7.48 | 49.9 | 2.1 |
 
 SfM, COLMAP default intrinsics refinement:
 
@@ -330,6 +336,8 @@ SfM, COLMAP default intrinsics refinement:
 | AV1 MV, libaom (COLMAP verification) | 2/117 | 29,395 | 0.352 | 2.00 | 12.1 | 5.6 |
 | AV1 MV, Intel QSV (COLMAP verification) | 2/117 | 9,667 | 0.221 | 2.00 | 1.9 | 0.6 |
 | AV1 MV, VA-API (COLMAP verification) | 117/117 | 115,251 | 0.594 | 8.72 | 257.2 | 21.7 |
+| SIFT sequential (overlap 10) | 117/117 | 33,804 | 0.372 | 7.44 | 44.9 | 4.1 |
+| SIFT exhaustive | 117/117 | 36,692 | 0.384 | 7.48 | 69.7 | 4.5 |
 
 ### Findings
 
@@ -362,6 +370,13 @@ SfM, COLMAP default intrinsics refinement:
   the VA-API database still registers 117/117, while the libaom and QSV
   databases collapse to two images (as does libaom's in the cloud run; the
   trusted-MV and SVT-AV1 databases survive there).
+- **End to end on Lunar Lake.** Up to the mapper, VA-API takes 34 s (0.5 s
+  encode + 33 s matching with COLMAP verification), SIFT sequential 23 s
+  (7.7 + 15 s) and SIFT exhaustive 98 s (7.8 + 90 s). VA-API's encode is
+  15× cheaper than SIFT extraction, but verifying its 129 k raw matches per
+  image dominates. With the mapper, VA-API takes 222 s for 114 k points at
+  0.60 px; SIFT sequential 57 s for 34 k points at 0.38 px. MV matching buys
+  density, not end-to-end speed, unless verification is skipped (trusted MVs).
 - **SVT-AV1** encodes 5× faster than libaom, but it codes fewer, larger
   blocks (129 k track seeds vs 261 k) and its tracks are shorter (mean 4.0
   vs 11.3 frames; only about half its MVs point to the previous frame,
