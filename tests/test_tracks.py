@@ -2,6 +2,7 @@ import numpy as np
 import pytest
 from synth import make_frame, set_block
 
+from av1sfm.blocks import MotionLookup
 from av1sfm.tracks import TrackParams, build_tracks, tracks_to_matches
 
 
@@ -156,3 +157,44 @@ def test_match_count_guard():
     with pytest.raises(TooManyMatches):
         tracks_to_matches(tr, max_matches=10)
     assert tracks_to_matches(tr, max_pair_gap=1, max_matches=10).matches  # gap bypasses guard
+
+
+def future_reference_sequence():
+    """Content pans +4 px per frame. Decode order: 0 (key), 2, 1; frame 1 uses frame 2."""
+    key = make_frame(0, intra=True)
+    f2 = make_frame(2, mv_px=(-8.0, 0.0), ref_frames=(0,) * 7)
+    f1 = make_frame(1, mv_px=(4.0, 0.0), ref_frames=(2,) * 7)
+    f2.decode_index, f2.ref_decode_index = 1, (0,) * 7
+    f1.decode_index, f1.ref_decode_index = 2, (1,) * 7
+    return [key, f2, f1]
+
+
+def test_tracks_follow_future_references_with_consistent_direction():
+    tr = build_tracks(future_reference_sequence(), TrackParams())
+    assert tr.stats["cosine_violations"] == 0  # +4 px forward and -8 px back: same motion
+    spans = [tr.frame[tr.track == t].tolist() for t in range(tr.num_tracks)]
+    assert [2, 1, 0] in spans
+    xy = tr.xy[tr.track == spans.index([2, 1, 0])]
+    np.testing.assert_allclose(xy[:, 0] - xy[1, 0], [4.0, 0.0, -4.0])  # frames 2, 1, 0
+    mg = tracks_to_matches(tr)
+    assert {(0, 1), (0, 2), (1, 2)} <= set(mg.matches)
+
+
+def test_hidden_frame_and_overlay_never_put_a_track_twice_in_one_image():
+    # Decode order 0 (key), 1 = hidden alt-ref shown at 2, 2 = frame 1, 3 = overlay at 2.
+    key = make_frame(0, intra=True)
+    arf = make_frame(2, mv_px=(-8.0, 0.0), ref_frames=(0,) * 7)
+    f1 = make_frame(1, mv_px=(4.0, 0.0), ref_frames=(2,) * 7)
+    ovl = make_frame(2, mv_px=(-4.0, 0.0), ref_frames=(1, 2, 0, 0, 0, 0, 0))
+    arf.decode_index, arf.ref_decode_index = 1, (0,) * 7
+    f1.decode_index, f1.ref_decode_index = 2, (1,) * 7
+    ovl.decode_index, ovl.ref_decode_index = 3, (2, 1, 0, 0, 0, 0, 0)
+    set_block(ovl, 0, 0, 16, 16, ref0=2, mv_px=(0.0, 0.5))  # overlay -> its own hidden frame
+    frames = [key, arf, f1, ovl]
+    lk = MotionLookup.from_frame(ovl)
+    assert lk.query(np.array([[8.0, 8.0], [40.0, 8.0]]))[1].tolist() == [-1, 1]
+    tr = build_tracks(frames, TrackParams(min_length=1))
+    assert tr.stats["revisits_stopped"] > 0  # overlay -> frame 1 -> alt-ref stops at frame 1
+    for t in range(tr.num_tracks):
+        f = tr.frame[tr.track == t]
+        assert len(f) == len(np.unique(f))

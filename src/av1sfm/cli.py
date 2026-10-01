@@ -189,9 +189,9 @@ def main(argv: list[str] | None = None) -> None:
         imgs: dict[int, np.ndarray] = {}
         for fm in iter_frame_motion(a.ivf):
             if fm.index > a.frames:
-                break
+                continue
             for k in [fm.index, *fm.ref_frame_index]:
-                if k not in imgs:
+                if k >= 0 and k not in imgs:
                     imgs[k] = cv2.imread(str(paths[k]), cv2.IMREAD_GRAYSCALE).astype(np.float32)
             s = score_frame(fm, imgs)
             if s:
