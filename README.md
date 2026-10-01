@@ -161,7 +161,11 @@ GPU, then CUDA, then the CPU):
   the two descriptor sets.
 - **DISK + LightGlue**, `eval/run_lightglue.py`
   ([`av1sfm/learned.py`](src/av1sfm/learned.py)): the learned baseline of the
-  paper's Table I, using kornia's ports of both networks.
+  paper's Table I, using kornia's ports of both networks with their defaults
+  (early stopping, point pruning; float16 attention on a GPU, as kornia does
+  on CUDA). `--fp32-attention`, `--no-pruning` and `--cpu-softmax` select
+  slower variants. `python eval/check_device.py IMG0 IMG1` compares the GPU
+  with the CPU and times each variant (ASSUMPTIONS.md R8).
 
 Both use COLMAP's own pair generation and geometric verification and write
 the same database layout as the other methods, so scoring and mapping are
@@ -442,8 +446,8 @@ SfM, COLMAP default intrinsics refinement:
   This is the pattern of the paper's Table I, which has DISK + LightGlue on a
   T4 at 1,067 s front end and 85 k points at 1.07 px, against SIFT
   sequential's 55 k points at 0.30 px (on its own 1080×1920 clip).
-  Point pruning is off and two steps run on the CPU (ASSUMPTIONS.md R8), so
-  LightGlue runs slower here than at its best.
+  This run used float32 attention without point pruning and the dual softmax
+  on the CPU (ASSUMPTIONS.md R8); the current defaults are faster.
 - **SVT-AV1** encodes 5× faster than libaom, but it codes fewer, larger
   blocks (129 k track seeds vs 261 k) and its tracks are shorter (mean 4.0
   vs 11.3 frames; only about half its MVs point to the previous frame,

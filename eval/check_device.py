@@ -4,7 +4,8 @@
 
 Reports: exact SIFT matching (must be identical), the DISK score map and
 keypoints, and LightGlue matches on identical inputs (small differences are
-expected from floating-point arithmetic; large ones mean a device problem).
+expected from floating-point arithmetic and float16 attention; large ones mean
+a device problem), with the time per image pair of each LightGlue setting.
 """
 
 from __future__ import annotations
@@ -12,13 +13,14 @@ from __future__ import annotations
 import argparse
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 import numpy as np
 import pycolmap
 
-from av1sfm.devices import DEVICES, device_name, pick_device
-from av1sfm.learned import DiskLightGlue, Features
+from av1sfm.devices import DEVICES, device_name, pick_device, synchronize
+from av1sfm.learned import DiskLightGlue, Features, double_softmax_maxima
 from av1sfm.sift_exact import match_descriptors
 
 
@@ -98,7 +100,8 @@ def isolate_modules(nets, fc0, fc1, dev) -> None:
     device with exactly the inputs it received on the CPU (no error propagation)."""
     torch = nets["cpu"].torch
     cpu_lg, dev_lg = nets["cpu"].lightglue, nets["device"].lightglue
-    configure(nets["cpu"], False, True)
+    for net in nets.values():
+        configure(net, early_stop=False, prune=False, half=False, on_device=False)
     wanted = [
         (n, m)
         for n, m in cpu_lg.named_modules()
@@ -163,6 +166,9 @@ def primitives(dev) -> None:
         "scaled_dot_product_attention": lambda t: torch.nn.functional.scaled_dot_product_attention(
             t[0], t[0], t[0]
         ),
+        "scaled_dot_product_attention float16": lambda t: (
+            torch.nn.functional.scaled_dot_product_attention(t[0].half(), t[0].half(), t[0].half())
+        ),
         "layer_norm": lambda t: torch.nn.functional.layer_norm(t[0], (64,)),
         "gelu": lambda t: torch.nn.functional.gelu(t[0]),
         "matmul (5000x256 @ 256x512)": lambda t: t[0].reshape(-1, 256) @ t[2],
@@ -177,6 +183,9 @@ def primitives(dev) -> None:
         "matmul, sum over 5000 (2-D)": lambda t: torch.softmax(t[3][0, 0], -1) @ t[0][0, 0],
         "log_softmax over 5000": lambda t: torch.log_softmax(t[3], -1),
         "logsumexp over 5000": lambda t: torch.logsumexp(t[3], -1),
+        "double_softmax_maxima (values)": lambda t: torch.from_numpy(
+            double_softmax_maxima(t[3][0, :1], t[3][0, 1, :, :1][None], t[3][0, 2, :, :1][None])[0]
+        ),
         "max over 5000 (values)": lambda t: t[3].max(-1).values,
         "sum over 5000": lambda t: t[3].sum(-1),
         "add transposed (x + x^T)": lambda t: t[3] + t[3].transpose(-1, -2),
@@ -195,18 +204,20 @@ def primitives(dev) -> None:
                 print(f"  {name:38s} FAILED: {type(e).__name__}: {e}")
 
 
-def configure(net: DiskLightGlue, early_stop: bool, sdpa: bool) -> None:
+def configure(net: DiskLightGlue, *, early_stop=True, prune=True, half=None, on_device=None):
+    gpu = net.device.type != "cpu"
     net.lightglue.conf.depth_confidence = 0.95 if early_stop else -1
-    for mod in net.lightglue.modules():
-        if hasattr(mod, "has_sdp"):
-            mod.has_sdp = sdpa and hasattr(net.torch.nn.functional, "scaled_dot_product_attention")
+    net.prune = prune
+    net.half_attention = gpu if half is None else half
+    net.assignment_on_device = gpu if on_device is None else on_device
+    net.prune_min_keypoints = 1536 if net.half_attention else 1024
 
 
 def lightglue_variants(nets, fd0, fd1, fc0, fc1) -> None:
     """LightGlue on identical inputs: per-layer differences, then full matching."""
-    # Layer by layer, without early stopping (all layers run).
+    # Layer by layer in float32, without early stopping or pruning (all layers run).
     for net in nets.values():
-        configure(net, False, True)
+        configure(net, early_stop=False, prune=False, half=False, on_device=False)
     outs = {}
     for key, (f0, f1) in {"cpu": (fc0, fc1), "device": (fd0, fd1)}.items():
         lg, rec = nets[key].lightglue, []
@@ -228,19 +239,30 @@ def lightglue_variants(nets, fd0, fd1, fc0, fc1) -> None:
         rel = (a - b).abs().max().item() / max(a.abs().max().item(), 1e-12)
         print(f"  {name:18s} max rel. diff {rel:.2e}")
 
+    # Full matching. The CPU reference always runs in float32 with the CPU dual
+    # softmax, pruning (if any) from the same number of keypoints as the device.
     variants = {
-        "no early stop": (False, True),
-        "no SDPA attention": (True, False),
-        "default": (True, True),
+        "fp32, no pruning, CPU softmax": {"prune": False, "half": False, "on_device": False},
+        "fp32, pruning, device softmax": {"half": False},
+        "fp16 attention, no pruning": {"prune": False},
+        "default (fp16, pruning)": {},
     }
     for name, cfg in variants.items():
-        for net in nets.values():
-            configure(net, *cfg)
+        configure(nets["device"], **cfg)
+        configure(nets["cpu"], prune=cfg.get("prune", True), half=False, on_device=False)
+        nets["cpu"].prune_min_keypoints = nets["device"].prune_min_keypoints
         lc = nets["cpu"].match(fc0, fc1)
         ld = nets["device"].match(fd0, fd1)
+        dev = nets["device"].device
+        synchronize(dev)
+        t = time.perf_counter()
+        for _ in range(3):
+            nets["device"].match(fd0, fd1)
+        synchronize(dev)
+        ms = (time.perf_counter() - t) / 3 * 1000
         print(
-            f"LightGlue, {name:17s}: {len(lc):5d} cpu, {len(ld):5d} device, "
-            f"same matches: {overlap(lc, ld):.3f}"
+            f"LightGlue, {name:30s}: {len(lc):5d} cpu, {len(ld):5d} device, "
+            f"same matches: {overlap(lc, ld):.3f}, device {ms:6.0f} ms/pair"
         )
 
 
