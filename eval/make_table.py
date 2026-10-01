@@ -14,6 +14,7 @@ from pathlib import Path
 METHODS = [
     ("mv", "AV1 MV, libaom (COLMAP verification)"),
     ("mv_trust", "AV1 MV, libaom (MVs trusted, no verification)"),
+    ("mv_good", "AV1 MV, libaom good usage (COLMAP verification)"),
     ("mv_svt", "AV1 MV, SVT-AV1 (COLMAP verification)"),
     ("mv_qsv", "AV1 MV, Intel QSV (COLMAP verification)"),
     ("mv_vaapi", "AV1 MV, VA-API (COLMAP verification)"),
@@ -59,9 +60,10 @@ def main(root: Path) -> None:
         print(
             "| Method | Pre-processing (s) | Feature matching (s) | CPU % (1 core = 100) "
             "| CPU % of machine | Keypoints / img | Raw matches / img | Verified matches / img "
-            "| Scored pairs | Inlier ratio | Median Sampson (px) | Median SE (normalised²) |"
+            "| Scored pairs | Inlier ratio (pooled) | Inlier ratio (median of pairs) "
+            "| Median Sampson (px) | Median SE (normalised²) |"
         )
-        print("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
+        print("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
         for key, label in METHODS:
             st = load(d / f"{key}.json")
             if not st:
@@ -76,6 +78,7 @@ def main(root: Path) -> None:
                 f"| {fmt(m['keypoints_per_image'], 0)} | {fmt(m['raw_matches_per_image'], 0)} "
                 f"| {fmt(m['verified_matches_per_image'], 0)} | {fmt(s.get('pairs'))} "
                 f"| {fmt(s.get('inlier_ratio_pooled'), 3)} "
+                f"| {fmt(s.get('inlier_ratio_median_of_pairs'), 3)} "
                 f"| {fmt(s.get('sampson_px_median_of_pairs'), 3)} "
                 f"| {sci(s.get('sampson_sq_norm_median_of_pairs'))} |"
             )
