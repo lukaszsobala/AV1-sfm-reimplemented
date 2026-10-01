@@ -35,6 +35,8 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+import cv2
+
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}
 BACKENDS = ("libaom", "svtav1", "vulkan", "qsv", "vaapi")
 FFMPEG_CODEC = {
@@ -201,10 +203,22 @@ def ffmpeg_command(
     *,
     num_frames: int,
     scale: tuple[int, int] | None = None,
+    size: tuple[int, int] | None = None,
     ffmpeg: str | None = None,
 ) -> list[str]:
+    """`size` is the input frame size (width, height), used to pad odd sizes for SVT-AV1."""
     cmd = [ffmpeg or find_ffmpeg(), "-hide_banner", "-loglevel", "error", "-y"]
     filters = [f"scale={scale[0]}:{scale[1]}:flags=area"] if scale else []
+    size = scale or size
+    if params.encoder == "svtav1" and size and (size[0] % 2 or size[1] % 2):
+        # SVT-AV1 2.x rejects odd sizes for 4:2:0. Repeat the last column / row,
+        # as the encoder's own padding to its block grid would; the decoded
+        # frame is then clamped back to the image size (clamp_to_image_size).
+        dx, dy = size[0] % 2, size[1] % 2
+        filters.append(
+            f"pad={size[0] + dx}:{size[1] + dy},"
+            f"fillborders=right={dx}:bottom={dy}:mode=smear"
+        )
     if params.encoder in HARDWARE:
         init, upload = _hw_args(params)
         cmd += init
@@ -294,6 +308,12 @@ def encode_images(
         for i, img in enumerate(images):
             (Path(tmp) / f"{i:06d}{ext}").symlink_to(Path(img).resolve())
         src = ["-framerate", str(params.fps), "-i", str(Path(tmp) / f"%06d{ext}")]
-        cmd = ffmpeg_command(src, out_ivf, params, num_frames=len(images), scale=scale)
+        size = None
+        if params.encoder == "svtav1" and scale is None:
+            h, w = cv2.imread(str(images[0]), cv2.IMREAD_UNCHANGED).shape[:2]
+            size = (w, h)
+        cmd = ffmpeg_command(
+            src, out_ivf, params, num_frames=len(images), scale=scale, size=size
+        )
         subprocess.run(cmd, check=True)
     return cmd

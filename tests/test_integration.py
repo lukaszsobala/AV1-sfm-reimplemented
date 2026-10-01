@@ -12,6 +12,7 @@ from av1sfm._vendor import dav1d_inspect
 from av1sfm.blocks import frame_block_motion
 from av1sfm.encode import EncodeParams, available_encoders, encode_images, find_ffmpeg
 from av1sfm.extract import load_frame_motion
+from av1sfm.pipeline import clamp_to_image_size
 from av1sfm.tracks import TrackParams, build_tracks, tracks_to_matches
 from av1sfm.validate import score_frame
 
@@ -72,7 +73,9 @@ def clip(request, tmp_path_factory):
         images[n] = img
     ivf = tmp / "clip.ivf"
     encode_images(paths, ivf, EncodeParams(encoder=request.param, crf=20))
-    return load_frame_motion(ivf), images
+    frames = load_frame_motion(ivf)
+    clamp_to_image_size(frames, paths[0])  # as the pipeline does (padded SVT-AV1 frames)
+    return frames, images
 
 
 def test_frame_indices_and_references(clip):
