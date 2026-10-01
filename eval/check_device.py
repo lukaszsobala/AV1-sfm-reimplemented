@@ -72,6 +72,11 @@ def main() -> None:
     f = {k: (n.extract(a.image0), n.extract(a.image1)) for k, n in nets.items()}
     kc, kd = (f[k][0].keypoints.cpu().numpy() for k in ("cpu", "device"))
     print(f"DISK keypoints: {len(kc)} cpu, {len(kd)} device, same positions: {overlap(kc, kd):.3f}")
+    if len(kc) == len(kd) and overlap(kc, kd) == 1.0:
+        dc, dd = (f[k][0].descriptors.cpu() for k in ("cpu", "device"))
+        print(
+            f"DISK descriptors: max |cpu - device| = {(dc - dd).abs().max().item():.2e} (unit vectors)"
+        )
 
     def on(dev_, feats: Features) -> Features:
         return Features(feats.keypoints.to(dev_), feats.descriptors.to(dev_), feats.size)
@@ -81,28 +86,18 @@ def main() -> None:
     lightglue_variants(nets, on(dev, fc0), on(dev, fc1), fc0, fc1)
 
 
-def configure(net: DiskLightGlue, prune: bool, early_stop: bool, sdpa: bool) -> None:
-    lg = net.lightglue
-    lg.conf.width_confidence = 0.99 if prune else -1
-    lg.conf.depth_confidence = 0.95 if early_stop else -1
-    for mod in lg.modules():
+def configure(net: DiskLightGlue, early_stop: bool, sdpa: bool) -> None:
+    net.lightglue.conf.depth_confidence = 0.95 if early_stop else -1
+    for mod in net.lightglue.modules():
         if hasattr(mod, "has_sdp"):
             mod.has_sdp = sdpa and hasattr(net.torch.nn.functional, "scaled_dot_product_attention")
 
 
 def lightglue_variants(nets, fd0, fd1, fc0, fc1) -> None:
-    """Locate a device problem in LightGlue: switch its parts off one at a time."""
-    # Safest first: a device-side assertion aborts the process.
-    variants = {
-        "none of the three": (False, False, False),
-        "no pruning": (False, True, True),
-        "no SDPA attention": (True, True, False),
-        "no early stop": (True, False, True),
-        "default": (True, True, True),
-    }
-    # Layer by layer, with pruning and early stopping off (fixed shapes).
+    """LightGlue on identical inputs: per-layer differences, then full matching."""
+    # Layer by layer, without early stopping (all layers run).
     for net in nets.values():
-        configure(net, False, False, True)
+        configure(net, False, True)
     outs = {}
     for key, (f0, f1) in {"cpu": (fc0, fc1), "device": (fd0, fd1)}.items():
         lg, rec = nets[key].lightglue, []
@@ -125,14 +120,19 @@ def lightglue_variants(nets, fd0, fd1, fc0, fc1) -> None:
         rel = (a - b).abs().max().item() / max(a.abs().max().item(), 1e-12)
         print(f"  {name:18s} max rel. diff {rel:.2e}")
 
+    variants = {
+        "no early stop": (False, True),
+        "no SDPA attention": (True, False),
+        "default": (True, True),
+    }
     for name, cfg in variants.items():
         for net in nets.values():
             configure(net, *cfg)
         lc = nets["cpu"].match(fc0, fc1)
         ld = nets["device"].match(fd0, fd1)
         print(
-            f"  LightGlue, {name:18s}: {len(lc):5d} cpu, {len(ld):5d} device, "
-            f"same: {overlap(lc, ld):.3f}"
+            f"LightGlue, {name:17s}: {len(lc):5d} cpu, {len(ld):5d} device, "
+            f"same matches: {overlap(lc, ld):.3f}"
         )
 
 
