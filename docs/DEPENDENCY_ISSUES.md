@@ -87,21 +87,19 @@ gathers with `index_select`.
 ### 2. `softmax` and `log_softmax` over more than 4096 elements are wrong
 
 Along a dimension of more than 4096 elements, `softmax` and `log_softmax`
-return wrong values. `log_softmax` over rows of n elements, maximum relative
-difference to the CPU on random inputs:
+return wrong values. Rows of n elements, maximum relative difference to the
+CPU on random inputs:
 
-| n | Relative difference |
-|---:|---:|
-| 4096 | 6.8·10⁻⁸ (correct) |
-| 4097 | 0.97 |
-| 5000 | 1.00 |
+| n | `softmax` | `log_softmax` |
+|---:|---:|---:|
+| 4096 | 2.6·10⁻⁷ (correct) | 6.8·10⁻⁸ (correct) |
+| 4097 | 496 | 0.97 |
+| 5000 | 1.00 | 1.00 |
 
-`softmax` over 5000 elements fails as well, while matrix products do not:
-`softmax(S) @ V` summing over 5000 elements is correct (3·10⁻⁶) when the
-softmax is computed on the CPU, and wrong (0.06–0.8, varying between runs)
-when it is computed on the GPU, whether written with `@`, a batched `matmul`
-or `einsum`. (`eval/xpu_repro.py` now also prints `softmax` alone at 4096,
-4097 and 5000.) `logsumexp`, `max` and `sum` over the same rows are correct, and so
+Matrix products are not affected: `softmax(S) @ V` summing over 5000 elements
+is correct (3·10⁻⁶) when the softmax is computed on the CPU, and wrong
+(0.06–0.8, varying between runs) when it is computed on the GPU, whether
+written with `@`, a batched `matmul` or `einsum`. `logsumexp`, `max` and `sum` over the same rows are correct, and so
 is `scaled_dot_product_attention`, whose fused kernel computes the softmax
 itself.
 
