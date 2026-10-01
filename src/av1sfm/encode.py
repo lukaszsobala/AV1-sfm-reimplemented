@@ -216,8 +216,7 @@ def ffmpeg_command(
         # frame is then clamped back to the image size (clamp_to_image_size).
         dx, dy = size[0] % 2, size[1] % 2
         filters.append(
-            f"pad={size[0] + dx}:{size[1] + dy},"
-            f"fillborders=right={dx}:bottom={dy}:mode=smear"
+            f"pad={size[0] + dx}:{size[1] + dy},fillborders=right={dx}:bottom={dy}:mode=smear"
         )
     if params.encoder in HARDWARE:
         init, upload = _hw_args(params)
@@ -312,8 +311,6 @@ def encode_images(
         if params.encoder == "svtav1" and scale is None:
             h, w = cv2.imread(str(images[0]), cv2.IMREAD_UNCHANGED).shape[:2]
             size = (w, h)
-        cmd = ffmpeg_command(
-            src, out_ivf, params, num_frames=len(images), scale=scale, size=size
-        )
+        cmd = ffmpeg_command(src, out_ivf, params, num_frames=len(images), scale=scale, size=size)
         subprocess.run(cmd, check=True)
     return cmd

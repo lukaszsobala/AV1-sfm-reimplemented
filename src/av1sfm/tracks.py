@@ -35,6 +35,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass, field
+from itertools import pairwise
 from typing import Literal
 
 import numpy as np
@@ -287,8 +288,7 @@ def tracks_to_matches(
     kp_idx = np.empty(n_obs, np.int64)
     kp_idx[by_frame] = np.arange(n_obs) - np.repeat(first, counts)
     keypoints: dict[int, np.ndarray] = {
-        int(fs[s]): tracks.xy[by_frame[s : s + c]].astype(np.float32)
-        for s, c in zip(first, counts)
+        int(fs[s]): tracks.xy[by_frame[s : s + c]].astype(np.float32) for s, c in zip(first, counts)
     }
 
     lengths = tracks.lengths()
@@ -333,6 +333,6 @@ def tracks_to_matches(
     kp_pairs[:, 0] = kp_idx[pa]
     kp_pairs[:, 1] = kp_idx[pb]
     matches: dict[tuple[int, int], np.ndarray] = {}
-    for s, e in zip(bounds[:-1], bounds[1:]):
+    for s, e in pairwise(bounds):
         matches[(int(tracks.frame[pa[s]]), int(tracks.frame[pb[s]]))] = kp_pairs[s:e]
     return MatchGraph(keypoints, matches)
