@@ -1,0 +1,122 @@
+{
+  "method": "av1-mv",
+  "config": {
+    "track": {
+      "eps": 1.0,
+      "tau": 2.0,
+      "min_length": 3,
+      "on_violation": "cut",
+      "grid": "block",
+      "seed": "all",
+      "skip_zero": true,
+      "prev_only": false
+    },
+    "encode": {
+      "encoder": "libaom",
+      "crf": 32,
+      "qp": 128,
+      "usage": "good",
+      "cpu_used": 6,
+      "svt_preset": 10,
+      "svt_params": "",
+      "hw_device": null,
+      "threads": 0,
+      "fps": 10
+    },
+    "camera": {
+      "model": "SIMPLE_RADIAL",
+      "params": [
+        1312.049573,
+        960.0,
+        640.0,
+        -0.110339
+      ]
+    },
+    "max_pair_gap": null,
+    "two_view": "verify",
+    "decoder_threads": 0
+  },
+  "timings": {
+    "encode": {
+      "wall_s": 82.985,
+      "cpu_s": 245.26,
+      "cpu_percent": 295.5
+    },
+    "extract": {
+      "wall_s": 4.423,
+      "cpu_s": 6.06,
+      "cpu_percent": 137.0
+    },
+    "tracks": {
+      "wall_s": 2.929,
+      "cpu_s": 2.93,
+      "cpu_percent": 100.0
+    },
+    "database": {
+      "wall_s": 32.959,
+      "cpu_s": 122.43,
+      "cpu_percent": 371.5
+    }
+  },
+  "tracks": {
+    "seeds": 406498,
+    "raw_tracks": 406498,
+    "cosine_violations": 0,
+    "kept_tracks": 213407,
+    "observations": 1107830,
+    "mean_length": 5.191160552371759,
+    "max_length": 22
+  },
+  "keypoints_per_image": 11078.3,
+  "database": {
+    "pairs": 1053,
+    "raw_matches": 3104165,
+    "inlier_pairs": 1053,
+    "inlier_matches": 2839103
+  },
+  "num_images": 100,
+  "ffmpeg_command": [
+    "/home/user/AV1-sfm-reimplemented/third_party/build/media/bin/ffmpeg",
+    "-hide_banner",
+    "-loglevel",
+    "error",
+    "-y",
+    "-framerate",
+    "10",
+    "-i",
+    "/tmp/av1sfm_seq_vk8dv7nh/%06d.jpg",
+    "-vf",
+    "format=yuv420p",
+    "-c:v",
+    "libaom-av1",
+    "-usage",
+    "good",
+    "-cpu-used",
+    "6",
+    "-lag-in-frames",
+    "0",
+    "-crf",
+    "32",
+    "-b:v",
+    "0",
+    "-row-mt",
+    "1",
+    "-threads",
+    "0",
+    "-g",
+    "101",
+    "-keyint_min",
+    "101",
+    "-f",
+    "ivf",
+    "runs/exp/gh_good.ivf"
+  ],
+  "cpu_count": 4,
+  "matches": {
+    "num_images": 100,
+    "keypoints_per_image": 11078.3,
+    "raw_matches_per_image": 62083.3,
+    "verified_matches_per_image": 56782.06,
+    "verified_pairs": 1053
+  }
+}

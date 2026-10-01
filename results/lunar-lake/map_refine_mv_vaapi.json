@@ -1,0 +1,26 @@
+{
+  "timings": {
+    "mapper": {
+      "wall_s": 257.19,
+      "cpu_s": 1021.95,
+      "cpu_percent": 397.4
+    }
+  },
+  "num_models": 1,
+  "init_max_forward_motion": 1.0,
+  "init_min_tri_angle": 4.0,
+  "fix_intrinsics": false,
+  "registered_images": 117,
+  "points3D": 115251,
+  "mean_reprojection_error_px": 0.5944141415983786,
+  "mean_track_length": 8.72448829077405,
+  "mean_observations_per_image": 8594.068376068377,
+  "camera": [
+    701.2986871238294,
+    607.1928,
+    185.2157,
+    0.0026706995435363525
+  ],
+  "final_global_ba_s": 21.7,
+  "mean_reprojection_error_after_ba_px": 0.5944069413680846
+}

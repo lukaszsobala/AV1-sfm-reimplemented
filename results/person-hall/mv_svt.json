@@ -1,0 +1,110 @@
+{
+  "method": "av1-mv",
+  "config": {
+    "track": {
+      "eps": 1.0,
+      "tau": 2.0,
+      "min_length": 3,
+      "on_violation": "cut",
+      "grid": "block",
+      "seed": "all",
+      "skip_zero": true,
+      "prev_only": false
+    },
+    "encode": {
+      "encoder": "svtav1",
+      "crf": 32,
+      "qp": 128,
+      "usage": "realtime",
+      "cpu_used": 6,
+      "svt_preset": 10,
+      "svt_params": "",
+      "hw_device": null,
+      "threads": 0,
+      "fps": 10
+    },
+    "camera": {
+      "model": "SIMPLE_RADIAL",
+      "params": [
+        1312.810256,
+        960.0,
+        640.0,
+        -0.109344
+      ]
+    },
+    "max_pair_gap": null,
+    "two_view": "verify",
+    "decoder_threads": 0
+  },
+  "timings": {
+    "encode": {
+      "wall_s": 14.944,
+      "cpu_s": 32.96,
+      "cpu_percent": 220.6
+    },
+    "extract": {
+      "wall_s": 8.623,
+      "cpu_s": 14.04,
+      "cpu_percent": 162.8
+    },
+    "tracks": {
+      "wall_s": 3.471,
+      "cpu_s": 3.48,
+      "cpu_percent": 100.3
+    },
+    "database": {
+      "wall_s": 102.054,
+      "cpu_s": 385.61,
+      "cpu_percent": 377.8
+    }
+  },
+  "tracks": {
+    "seeds": 513592,
+    "raw_tracks": 513592,
+    "cosine_violations": 0,
+    "kept_tracks": 121666,
+    "observations": 427619,
+    "mean_length": 3.514695970936827,
+    "max_length": 14
+  },
+  "keypoints_per_image": 1998.2196261682243,
+  "database": {
+    "pairs": 1409,
+    "raw_matches": 594072,
+    "inlier_pairs": 1409,
+    "inlier_matches": 257057
+  },
+  "num_images": 215,
+  "ffmpeg_command": [
+    "/home/user/AV1-sfm-reimplemented/third_party/build/media/bin/ffmpeg",
+    "-hide_banner",
+    "-loglevel",
+    "error",
+    "-y",
+    "-framerate",
+    "10",
+    "-i",
+    "/tmp/av1sfm_seq_78os5vz6/%06d.jpg",
+    "-vf",
+    "format=yuv420p",
+    "-c:v",
+    "libsvtav1",
+    "-preset",
+    "10",
+    "-crf",
+    "32",
+    "-svtav1-params",
+    "pred-struct=1:rtc=1:keyint=-1",
+    "-f",
+    "ivf",
+    "runs/person-hall/clip_svt.ivf"
+  ],
+  "cpu_count": 4,
+  "matches": {
+    "num_images": 215,
+    "keypoints_per_image": 1988.925581395349,
+    "raw_matches_per_image": 5526.251162790698,
+    "verified_matches_per_image": 2391.227906976744,
+    "verified_pairs": 1409
+  }
+}

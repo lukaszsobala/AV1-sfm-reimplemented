@@ -1,0 +1,31 @@
+{
+  "method": "sift-sequential",
+  "config": {
+    "max_features": 8192,
+    "overlap": 10,
+    "camera": [
+      "SIMPLE_RADIAL",
+      "718.856,607.1928,185.2157,0"
+    ],
+    "cuda": false
+  },
+  "timings": {
+    "extract": {
+      "wall_s": 46.848,
+      "cpu_s": 185.74,
+      "cpu_percent": 396.5
+    },
+    "match": {
+      "wall_s": 62.623,
+      "cpu_s": 193.65,
+      "cpu_percent": 309.2
+    }
+  },
+  "matches": {
+    "num_images": 230,
+    "keypoints_per_image": 4831.395652173913,
+    "raw_matches_per_image": 15380.373913043479,
+    "verified_matches_per_image": 15084.817391304348,
+    "verified_pairs": 2245
+  }
+}

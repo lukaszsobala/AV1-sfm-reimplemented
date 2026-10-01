@@ -1,0 +1,33 @@
+{
+  "source": "data/colmap/gerrard-hall",
+  "images_total": 100,
+  "subset": [
+    "IMG_2331.JPG",
+    "IMG_2430.JPG",
+    100
+  ],
+  "long_side": 1920,
+  "size": [
+    1920,
+    1280
+  ],
+  "reference_camera": {
+    "model": "OPENCV",
+    "params": [
+      3838.27,
+      3837.22,
+      2808.0,
+      1872.0,
+      -0.110339,
+      0.079547,
+      0.000116211,
+      0.00029483
+    ]
+  },
+  "simple_radial": [
+    1312.0495726495726,
+    960.0,
+    640.0,
+    -0.110339
+  ]
+}

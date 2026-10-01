@@ -1,0 +1,33 @@
+{
+  "source": "data/colmap/person-hall",
+  "images_total": 330,
+  "subset": [
+    "IMG_1015.JPG",
+    "IMG_1229.JPG",
+    215
+  ],
+  "long_side": 1920,
+  "size": [
+    1920,
+    1280
+  ],
+  "reference_camera": {
+    "model": "OPENCV",
+    "params": [
+      3839.71,
+      3840.23,
+      2808.0,
+      1872.0,
+      -0.109344,
+      0.0790394,
+      0.000101365,
+      0.000233581
+    ]
+  },
+  "simple_radial": [
+    1312.8102564102564,
+    960.0,
+    640.0,
+    -0.109344
+  ]
+}
