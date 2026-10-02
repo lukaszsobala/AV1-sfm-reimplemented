@@ -236,15 +236,18 @@ settings (`--no-prune-redundant-points --ba-local-refinements 2`).
 
 - Every setting registers all images. The defaults make the mapper 24–44 %
   faster than COLMAP's settings (exact SIFT 117 frames: 31.1 → 22.3 s;
-  libaom: 732 → 412 s) with 0.1–0.4 % fewer points, the same or a lower
-  reprojection error and pose errors within ±1.5 % (on libaom 24 % lower). Any small change to the
+  libaom: 732 → 412 s) with 0.1–0.4 % fewer points, a reprojection error
+  within 0.001 px, and pose errors at most 1.5 % higher (exact SIFT, 117
+  frames) and lower on VA-API (trajectory error −5 %) and libaom (−24 %).
+  Any small change to the
   optimisation moves the pose errors by about that much in either direction
   (pruning alone: −20 % to +1.5 %); repeating a run with the same settings
   moves them by about 0.1 %.
 - `--ba-global-ratio 1.2` (COLMAP's `ba_global_frames_ratio` and
   `ba_global_points_ratio`, 1.1) runs global bundle adjustments less often:
-  another 9–18 % faster, with the trajectory error 1–2 % higher on two of the
-  three tests and 1 % lower on the third. It is not a default. 1.4 was 16 %
+  another 9–18 % faster. The trajectory error was 2 % higher on exact SIFT
+  (117 frames), unchanged on VA-API and 1 % lower on exact SIFT (230 frames).
+  It is not a default. 1.4 was 16 %
   faster than the default on exact SIFT, with a 2.5 % higher trajectory error.
 - Each global refinement (bundle adjustment, track completion, filtering,
   repeated up to `ba_global_max_refinements = 5` times) stops after one or

@@ -170,7 +170,7 @@ restores COLMAP's settings, as used for the published tables.
 | `--init-max-forward-motion`, `--init-min-tri-angle` [0.95, 16] | initial-pair constraints; KITTI's forward drive needs 1.0 and 4. |
 | `--[no-]prune-redundant-points` [on] | incremental mapper; global bundle adjustments skip 3D points that add little image coverage (COLMAP's `ba_global_ignore_redundant_points3D`, off in COLMAP). |
 | `--ba-local-refinements` [1] | local bundle adjustments per registered image (COLMAP: 2). |
-| `--ba-global-ratio` [1.1] | run a global bundle adjustment when the model has grown by this factor (COLMAP's `ba_global_frames_ratio` and `ba_global_points_ratio`). 1.2 is another 9–18 % faster, with 1–2 % higher trajectory errors on two of three KITTI tests. |
+| `--ba-global-ratio` [1.1] | run a global bundle adjustment when the model has grown by this factor (COLMAP's `ba_global_frames_ratio` and `ba_global_points_ratio`). 1.2 is another 9–18 % faster; the trajectory error was 2 % higher on one of three KITTI tests. |
 | `--mapper global` | COLMAP's global mapper (GLOMAP): rotation averaging and global positioning instead of image-by-image registration. About 3× faster on MV databases, with 3–12 % fewer points and slightly worse poses. |
 | `--global-tracks-per-view N` | with `--mapper global`, position the cameras with N tracks per image instead of all; every track is still triangulated afterwards. Much faster, but less accurate on noisy matches (libaom on KITTI). |
 | `--kitti-sequence DIR` | compare camera poses with the KITTI ground truth in `DIR` (`NN.txt`, `calib.txt`, as fetched by `eval/fetch_kitti.py`): absolute trajectory error after a similarity alignment and relative pose error over 1 and 10 frames (`eval/pose_error.py`). |

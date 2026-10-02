@@ -10,14 +10,14 @@ The same mapper settings are used for every matching method:
                    COLMAP's default). Dense MV tracks add more than 10 % new
                    points with almost every image, which triggers a global
                    bundle adjustment after nearly every registration;
-                   14-36 % faster.
+                   13-36 % faster.
                  * one local bundle adjustment per registered image instead
                    of up to two (`ba_local_max_refinements`;
-                   `local_refinements=2` is COLMAP's default); another 12-27 % faster.
+                   `local_refinements=2` is COLMAP's default); another 13-27 % faster.
                `global_ratio` > 1.1 (COLMAP's `ba_global_frames_ratio` and
                `ba_global_points_ratio`) runs global bundle adjustments less
-               often: 1.2 is another 9-18 % faster, with pose errors 1-2 %
-               higher on two of three KITTI tests.
+               often: 1.2 is another 9-18 % faster; the trajectory error was
+               2 % higher on one of three KITTI tests.
   global       COLMAP's global mapper (GLOMAP): faster, but on KITTI it gives
                3-12 % fewer points and slightly worse poses.
 """
