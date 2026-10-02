@@ -9,12 +9,11 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Literal
 
-import cv2
 import numpy as np
 import pycolmap
 
 from .colmap_db import CameraSpec, create_database, two_view_options, write_match_graph
-from .encode import EncodeParams, encode_images, list_images
+from .encode import EncodeParams, encode_images, list_images, read_image
 from .extract import FrameMotion, load_frame_motion, num_shown_frames
 from .geometry import PairScore, RansacSettings, score_pair, summarize
 from .timing import Timer
@@ -97,7 +96,7 @@ def clamp_to_image_size(frames: list[FrameMotion], image: Path) -> None:
     is then larger than the images. Keypoints and MV targets must stay inside
     the real image, so the usable frame size is clamped to it.
     """
-    h, w = cv2.imread(str(image), cv2.IMREAD_UNCHANGED).shape[:2]
+    h, w = read_image(image).shape[:2]
     for fm in frames:
         if fm.width < w or fm.height < h:
             raise ValueError(f"decoded frame {fm.width}x{fm.height} smaller than image {w}x{h}")

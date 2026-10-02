@@ -27,7 +27,7 @@ from av1sfm.timing import Timer
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0] if __doc__ else None)
     ap.add_argument("image_dir", type=Path)
     ap.add_argument("database", type=Path)
     ap.add_argument("--matching", choices=["exhaustive", "sequential"], required=True)

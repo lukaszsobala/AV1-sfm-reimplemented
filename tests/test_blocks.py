@@ -35,9 +35,7 @@ def test_frame_block_motion_one_keypoint_per_block_and_mv_geometry():
     fm = make_frame(3, 64, 64, block=(32, 32), mv_px=(-2.5, 1.25))
     bm = frame_block_motion(fm)
     assert len(bm) == 4  # four 32x32 blocks, not 64 grid cells
-    np.testing.assert_allclose(
-        sorted(map(tuple, bm.center)), [(16, 16), (16, 48), (48, 16), (48, 48)]
-    )
+    np.testing.assert_allclose(sorted(bm.center.tolist()), [[16, 16], [16, 48], [48, 16], [48, 48]])
     np.testing.assert_allclose(bm.mv, np.tile([-2.5, 1.25], (4, 1)))
     np.testing.assert_allclose(bm.target, bm.center + [-2.5, 1.25])
     assert (bm.ref_frame == 2).all() and (bm.ref_list == 0).all()

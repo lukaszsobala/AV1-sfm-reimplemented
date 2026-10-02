@@ -145,9 +145,9 @@ def test_keypoints_unique_per_frame_track():
 
 def test_invalid_violation_mode():
     with pytest.raises(ValueError):
-        TrackParams(on_violation="bogus")
+        TrackParams(on_violation="bogus")  # pyright: ignore[reportArgumentType]
     with pytest.raises(ValueError):
-        TrackParams(grid="pixel")
+        TrackParams(grid="pixel")  # pyright: ignore[reportArgumentType]
 
 
 def test_match_count_guard():

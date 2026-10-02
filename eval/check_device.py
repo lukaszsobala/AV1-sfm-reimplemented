@@ -11,6 +11,7 @@ a device problem), with the time per image pair of each LightGlue setting.
 from __future__ import annotations
 
 import argparse
+import io
 import sys
 import tempfile
 import time
@@ -43,12 +44,13 @@ def overlap(a: np.ndarray, b: np.ndarray) -> float:
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0] if __doc__ else None)
     ap.add_argument("image0", type=Path)
     ap.add_argument("image1", type=Path)
     ap.add_argument("--device", choices=DEVICES, default="auto")
     a = ap.parse_args()
-    sys.stdout.reconfigure(line_buffering=True)  # keep output if the device aborts
+    if isinstance(sys.stdout, io.TextIOWrapper):  # keep output if the device aborts
+        sys.stdout.reconfigure(line_buffering=True)
     dev, cpu = pick_device(a.device), pick_device("cpu")
     print(f"device: {device_name(dev)}")
 

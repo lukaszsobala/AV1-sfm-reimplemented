@@ -28,7 +28,7 @@ import cv2
 import numpy as np
 import pycolmap
 
-from av1sfm.encode import list_images
+from av1sfm.encode import list_images, read_image
 
 
 def longest_uniform_run(shapes: list[tuple[int, int]]) -> tuple[int, int]:
@@ -47,14 +47,14 @@ def longest_uniform_run(shapes: list[tuple[int, int]]) -> tuple[int, int]:
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0] if __doc__ else None)
     ap.add_argument("dataset", type=Path, help="folder with images/ and sparse/")
     ap.add_argument("out", type=Path, help="output folder (img/ and camera.txt are written)")
     ap.add_argument("--long-side", type=int, default=1920)
     a = ap.parse_args()
 
     images = list_images(a.dataset / "images")
-    shapes = [cv2.imread(str(p), cv2.IMREAD_REDUCED_GRAYSCALE_8).shape[:2] for p in images]
+    shapes = [read_image(p, cv2.IMREAD_REDUCED_GRAYSCALE_8).shape[:2] for p in images]
     start, length = longest_uniform_run(shapes)
     subset = images[start : start + length]
 
@@ -62,7 +62,7 @@ def main() -> None:
     out_img.mkdir(parents=True, exist_ok=True)
     scale = None
     for p in subset:
-        img = cv2.imread(str(p), cv2.IMREAD_COLOR)  # applies EXIF orientation
+        img = read_image(p, cv2.IMREAD_COLOR)  # applies EXIF orientation
         h, w = img.shape[:2]
         scale = a.long_side / max(h, w)
         small = cv2.resize(img, (round(w * scale), round(h * scale)), interpolation=cv2.INTER_AREA)

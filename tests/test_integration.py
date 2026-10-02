@@ -71,7 +71,7 @@ def clip(request, tmp_path_factory):
     tmp = tmp_path_factory.mktemp(f"clip_{request.param}")
     rng = np.random.default_rng(1)
     tex = cv2.GaussianBlur(rng.random((1000, 1400)).astype(np.float32), (0, 0), 2.5)
-    tex = cv2.normalize(tex, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+    tex = cv2.normalize(tex, tex, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
     paths, images = [], {}
     for n in range(N):
         M = frame_transform(n)

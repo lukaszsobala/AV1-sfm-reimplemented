@@ -36,6 +36,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import cv2
+import numpy as np
 
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}
 BACKENDS = ("libaom", "svtav1", "vulkan", "qsv", "vaapi")
@@ -80,6 +81,14 @@ def find_ffmpeg() -> str:
 
 def list_images(image_dir: str | Path) -> list[Path]:
     return sorted(p for p in Path(image_dir).iterdir() if p.suffix.lower() in IMAGE_EXTS)
+
+
+def read_image(path: str | Path, flags: int = cv2.IMREAD_UNCHANGED) -> np.ndarray:
+    """`cv2.imread`, raising instead of returning None for a missing or unreadable file."""
+    img = cv2.imread(str(path), flags)
+    if img is None:
+        raise FileNotFoundError(f"cannot read image {path}")
+    return img
 
 
 def _hw_args(params: EncodeParams) -> tuple[list[str], str]:
@@ -309,7 +318,7 @@ def encode_images(
         src = ["-framerate", str(params.fps), "-i", str(Path(tmp) / f"%06d{ext}")]
         size = None
         if params.encoder == "svtav1" and scale is None:
-            h, w = cv2.imread(str(images[0]), cv2.IMREAD_UNCHANGED).shape[:2]
+            h, w = read_image(images[0]).shape[:2]
             size = (w, h)
         cmd = ffmpeg_command(src, out_ivf, params, num_frames=len(images), scale=scale, size=size)
         subprocess.run(cmd, check=True)

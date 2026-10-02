@@ -116,7 +116,10 @@ def frame_block_motion(
     """
     empty = BlockMotion(
         fm.index,
-        *(np.zeros(0, np.int64) for _ in range(4)),
+        np.zeros(0, np.int64),
+        np.zeros(0, np.int64),
+        np.zeros(0, np.int64),
+        np.zeros(0, np.int64),
         np.zeros((0, 2)),
         np.zeros((0, 2)),
         np.zeros(0, np.int64),
