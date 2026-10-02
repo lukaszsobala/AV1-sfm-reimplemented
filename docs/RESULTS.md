@@ -137,7 +137,7 @@ SfM, COLMAP default intrinsics refinement:
 ## Results on an Intel Lunar Lake laptop (KITTI 00, frames 0–116)
 
 Run by the repository owner on an Intel Lunar Lake laptop (Ubuntu 26.04,
-Intel graphics PPA, system FFmpeg, power profile "Balanced", so not peak
+GPU drivers and FFmpeg from the Ubuntu archive, power profile "Balanced", so not peak
 performance) with
 `RUN= HW="qsv vaapi" ONLY="mv mv_qsv mv_vaapi" SETS=117 bash eval/run_kitti.sh`,
 `RUN= ONLY="sift_seq sift_exh" SETS=117 bash eval/run_kitti.sh` and

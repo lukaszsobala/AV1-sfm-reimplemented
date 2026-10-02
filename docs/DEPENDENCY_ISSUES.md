@@ -26,7 +26,7 @@ results in ways that are easy to miss, follow them.
 **Environment:** PyTorch 2.14.1 XPU wheel (`download.pytorch.org/whl/xpu`),
 Python 3.14, Intel Core Ultra (Lunar Lake) with integrated Arc graphics
 (`torch.xpu.get_device_name()`: "Intel(R) Arc(TM) Graphics"), Ubuntu 26.04,
-GPU compute runtime from Intel's graphics PPA. `torch.xpu.get_device_properties()`:
+GPU compute runtime from the Ubuntu archive (`intel-opencl-icd`, `libze-intel-gpu1` 26.05.37020). `torch.xpu.get_device_properties()`:
 platform "Intel(R) oneAPI Unified Runtime over Level-Zero V2", driver version
 1.14.37020, device version 20.4.4, 64 EUs.
 
@@ -213,7 +213,7 @@ scaled by FFmpeg's default `i_qfactor` (0.8). av1sfm uses `-global_quality`
 
 ### 10. Vulkan Video AV1 encode not exposed on Lunar Lake
 
-With Mesa ANV from Intel's graphics PPA on Ubuntu 26.04, FFmpeg's
+With Mesa ANV 26.0.8 from the Ubuntu 26.04 archive, FFmpeg's
 `av1_vulkan` stops at "Device does not support the VK_KHR_video_encode_queue
 extension". The same Lunar Lake GPU encodes AV1 through VA-API and QSV, so
 this is a driver limitation. `av1sfm encoders` reports it, and `--encoder
