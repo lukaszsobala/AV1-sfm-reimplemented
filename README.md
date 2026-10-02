@@ -140,8 +140,9 @@ uv run av1sfm reconstruct video.mp4 out/       # or a folder of frames; --encode
 uv run av1sfm reconstruct images/ out/ --matcher sift   # exact SIFT matching instead (needs PyTorch)
 ```
 
-The step-by-step commands (`av1sfm match`, `eval/run_mapper.py`, ...) are
-in the usage guide.
+The usage guide lists
+[the outputs and every option of `reconstruct`](docs/USAGE.md#av1sfm-reconstruct-images-or-a-video-to-a-3d-model)
+and the step-by-step commands (`av1sfm match`, `eval/run_mapper.py`, ...).
 
 [docs/USAGE.md](docs/USAGE.md) covers installation (including Intel GPUs),
 every command and option, the encoders, the GPU baselines and exporting a
