@@ -1,14 +1,26 @@
-"""Per-frame AV1 block metadata, in display order with absolute frame indices.
+"""Per-frame AV1 block metadata with absolute display and decode indices.
 
 Thin layer over the vendored `dav1d_inspect.iter_frames` (sigmedia/AV1-Optical-Flow).
 It resolves AV1's cyclic order hints and per-slot reference order hints into
 absolute frame indices, so downstream code can say "this block's MV points into
 frame m" without knowing about reference slots.
 
-Conventions (verified against a synthetic pan, see tests/test_extract_integration.py):
+Any AV1 stream is accepted, not only low-delay ones: with hidden frames
+(alt-refs) and future references, frames are decoded out of display order and
+a block may be predicted from a later frame. Every decoded frame gets
+
+  * `index`: its display index, i.e. the index of the image it shows. Display
+    times come from the order hints; they are ranked, so the shown frames are
+    numbered 0 .. N-1 whatever the encoder's order-hint numbering. A hidden
+    frame and the overlay frame that later shows it share one display index.
+  * `decode_index`: its position in decode order, which identifies the frame
+    buffer that later frames reference.
+
+Conventions (verified against a synthetic pan, see tests/test_integration.py):
   * `mv[..., 0:2]` is list 0 (x, y) and `mv[..., 2:4]` is list 1, in 1/8 pel.
   * A block at pixel position p in frame n with MV v and reference slot r is
-    predicted from position p + v/8 in frame `ref_frame_index[r - 1]`.
+    predicted from position p + v/8 in frame `ref_frame_index[r - 1]`, which
+    is the decoded frame `ref_decode_index[r - 1]`.
   * `ref[..., k]`: 0 = intra, 1..7 = LAST..ALTREF slot, -1 (or <= 0) = none.
 """
 
@@ -34,14 +46,22 @@ INTRA_ONLY_FRAME = 2
 class FrameMotion:
     """Block motion of one decoded frame on the 4x4 grid."""
 
-    index: int  # absolute display-order frame index
+    index: int  # display index: this frame shows the index-th image
     width: int
     height: int
     frame_type: int
     mv: np.ndarray  # (H/4, W/4, 4) int16, 1/8 pel: [mv0_x, mv0_y, mv1_x, mv1_y]
     ref: np.ndarray  # (H/4, W/4, 2) int16 reference slots
     block_map: np.ndarray  # (H/4, W/4) uint8 AOM BLOCK_* enum
-    ref_frame_index: tuple[int, ...]  # absolute frame index per slot 1..7
+    ref_frame_index: tuple[int, ...]  # display index per slot 1..7, -1 if unknown
+    decode_index: int | None = None  # position in decode order (default: `index`)
+    ref_decode_index: tuple[int, ...] | None = None  # decode index per slot (default: display)
+
+    def __post_init__(self) -> None:
+        if self.decode_index is None:
+            self.decode_index = self.index
+        if self.ref_decode_index is None:
+            self.ref_decode_index = self.ref_frame_index
 
     @property
     def is_intra(self) -> bool:
@@ -54,42 +74,75 @@ def _unwrap(order_hint: int, anchor: int) -> int:
     return base + ORDER_HINT_MODULO if anchor - base > ORDER_HINT_MODULO // 2 else base
 
 
-def iter_frame_motion(ivf_path: str | Path, n_threads: int = 0) -> Iterator[FrameMotion]:
-    """Decode `ivf_path` and yield `FrameMotion` for every frame in decode order.
+def resolve_order(
+    order_hints: list[int], frame_types: list[int], ref_order_hints: list[list[int]]
+) -> tuple[list[int], list[tuple[int, ...]]]:
+    """Display index of each decoded frame and decode index of its reference slots.
 
-    For the streaming (low-delay, no hidden frames) configuration used by this
-    project decode order equals display order; a `ValueError` is raised if a
-    frame's order hint goes backwards, which would indicate a stream with
-    future references or hidden frames.
+    Frames are given in decode order. Order hints are unwrapped against the
+    previous decoded frame (jumps up to half the order-hint range); a key
+    frame whose order hint does not lie after every earlier frame restarts the
+    numbering after them. A reference slot holds the most recently decoded
+    frame with that order hint since the last key frame (-1 if there is none).
     """
+    times: list[int] = []
+    refs: list[tuple[int, ...]] = []
+    offset = 0  # display time = unwrapped order hint + offset
+    unwrapped = 0
+    latest: dict[int, int] = {}  # order hint -> decode index of the latest such frame
+    for k, (oh, ft, slots) in enumerate(zip(order_hints, frame_types, ref_order_hints)):
+        unwrapped = oh if k == 0 else _unwrap(oh, unwrapped)
+        t = unwrapped + offset
+        if ft == KEY_FRAME:
+            if times and t <= max(times):
+                offset += max(times) + 1 - t
+                t = max(times) + 1
+            latest = {}
+            refs.append((-1,) * len(slots))
+        else:
+            refs.append(tuple(latest.get(r % ORDER_HINT_MODULO, -1) for r in slots))
+        times.append(t)
+        latest[oh % ORDER_HINT_MODULO] = k
+    rank = {t: i for i, t in enumerate(sorted(set(times)))}
+    return [rank[t] for t in times], refs
+
+
+def load_frame_motion(ivf_path: str | Path, n_threads: int = 0) -> list[FrameMotion]:
+    """Decode `ivf_path` and return a `FrameMotion` per decoded frame, in decode order."""
     if _find_lib(_DAV1D_LIB) is None:
         raise FileNotFoundError(
             f"patched dav1d not found at {_DAV1D_LIB}.*: run `bash setup.sh` in the "
             "repository root (needs meson, ninja, nasm and a C compiler), or set "
             "AV1SFM_BUILD_DIR to an existing build"
         )
-    prev_abs: int | None = None
-    for fr in iter_frames(ivf_path, n_threads=n_threads):
-        oh = int(fr["frame_offset"])
-        cur = oh if prev_abs is None else _unwrap(oh, prev_abs + 1)
-        if prev_abs is not None and cur <= prev_abs:
-            raise ValueError(
-                f"{ivf_path}: order hint went backwards (frame {prev_abs} -> {cur}); "
-                "only low-delay streams with past references are supported"
-            )
-        refs = tuple(cur - ((oh - int(r)) % ORDER_HINT_MODULO) for r in fr["refpoc"])
-        prev_abs = cur
-        yield FrameMotion(
-            index=cur,
+    raw = list(iter_frames(ivf_path, n_threads=n_threads))
+    display, ref_nodes = resolve_order(
+        [int(fr["frame_offset"]) for fr in raw],
+        [int(fr["frame_type"]) for fr in raw],
+        [[int(r) for r in fr["refpoc"]] for fr in raw],
+    )
+    return [
+        FrameMotion(
+            index=display[k],
             width=int(fr["width"]),
             height=int(fr["height"]),
             frame_type=int(fr["frame_type"]),
             mv=fr["motion_vectors"],
             ref=fr["reference_map"],
             block_map=fr["block_map"],
-            ref_frame_index=refs,
+            ref_frame_index=tuple(display[r] if r >= 0 else -1 for r in ref_nodes[k]),
+            decode_index=k,
+            ref_decode_index=ref_nodes[k],
         )
+        for k, fr in enumerate(raw)
+    ]
 
 
-def load_frame_motion(ivf_path: str | Path, n_threads: int = 0) -> list[FrameMotion]:
-    return list(iter_frame_motion(ivf_path, n_threads=n_threads))
+def iter_frame_motion(ivf_path: str | Path, n_threads: int = 0) -> Iterator[FrameMotion]:
+    """`load_frame_motion` as an iterator (the whole stream is decoded first)."""
+    yield from load_frame_motion(ivf_path, n_threads=n_threads)
+
+
+def num_shown_frames(frames: list[FrameMotion]) -> int:
+    """Number of displayed frames (images) among decoded frames."""
+    return len({f.index for f in frames})

@@ -1,7 +1,6 @@
 """Track building from block motion vectors.
 
-A track is a physical point followed backwards in time through the chain of
-motion vectors:
+A track is a physical point followed through the chain of motion vectors:
 
   1. It starts at the centre of a block B in frame n (the source keypoint).
   2. B's MV v_nm moves it to x + v_nm in reference frame m (the target keypoint).
@@ -9,32 +8,46 @@ motion vectors:
      to frame l, and so on until it reaches a block with no usable MV
      (intra, (0,0), out of frame) or the first frame.
 
+In a low-delay stream every reference is an earlier frame, so tracks run
+backwards in time. With future references (hidden alt-ref frames, B-frames),
+a step can also go forward in time; every step still goes to a frame decoded
+earlier, since frames only reference decoded frames.
+
 "Block" is either a coded block (`grid="block"`, the 4x4 metadata grid
 collapsed with the block map) or every 4x4 unit of the zero-order-hold
 upsampled motion field (`grid="cell"`, as the follow-up paper arXiv
 2605.14629 describes the original pipeline).
 
-Frames are visited from last to first, so by the time frame n is processed all
-tracks arriving in it are known. With `seed="all"` (paper: "for each block
+Frames are visited in reverse decode order (from last to first for a
+low-delay stream), so by the time frame n is processed all tracks arriving in
+it are known. With `seed="all"` (paper: "for each block
 (p,q) in a frame n, we emit a source keypoint at the center of the block ...
 the generated target point is added to the source keypoints of frame m")
 every block of every frame starts a track, next to the points arriving from
 later frames. `seed="uncovered"` only seeds blocks no arriving point lands in.
 
 Every consecutive triple (n, m, l) of a track must satisfy
-cos(v_nm, v_ml) >= 1 - eps, unless either vector is shorter than tau pixels. On
+cos(v_nm, v_ml) >= 1 - eps, unless either vector is shorter than tau pixels.
+An MV to a later frame is negated first, so that both vectors describe motion
+in the same direction of time. On
 a violation the track is terminated at m (`cut`, paper: bad MVs "are deleted
 and not considered for matches"; the follow-up paper: "they terminate a
 trajectory"), split at m into two tracks (`split`) or dropped (`drop`).
 Tracks with fewer than `min_length` observations are discarded, and every
 pair of frames on a surviving track becomes a match, which yields matches
 between non-adjacent frames.
+
+A track never has two observations in one image. Two decoded frames share an
+image when a hidden frame is later shown by an overlay frame; an MV between
+them is ignored, and a track that already passed through one of them ends
+before entering the other.
 """
 
 from __future__ import annotations
 
-from collections import defaultdict
+from collections import Counter, defaultdict
 from dataclasses import dataclass, field
+from itertools import pairwise
 from typing import Literal
 
 import numpy as np
@@ -149,30 +162,39 @@ def _seed_points(
 def build_tracks(frames: list[FrameMotion], params: TrackParams | None = None) -> Tracks:
     """Propagate block MVs into tracks (see module docstring)."""
     p = params or TrackParams()
-    by_index = {f.index: f for f in frames}
-    order = sorted(by_index, reverse=True)
+    by_node = {f.decode_index: f for f in frames}
+    order = sorted(by_node, reverse=True)
+    shared = {d for d, c in Counter(f.index for f in frames).items() if c > 1}
 
     arrivals: dict[int, list[tuple[np.ndarray, np.ndarray, np.ndarray]]] = defaultdict(list)
+    seen_in: dict[int, list[np.ndarray]] = defaultdict(list)  # shared image -> track ids
     obs_t: list[np.ndarray] = []
     obs_f: list[np.ndarray] = []
     obs_xy: list[np.ndarray] = []
     dropped: list[np.ndarray] = []
     next_id = 0
-    n_seeds = n_violations = 0
+    n_seeds = n_violations = n_revisits = 0
 
     def record(ids: np.ndarray, frame: int, pts: np.ndarray) -> None:
         obs_t.append(ids)
         obs_f.append(np.full(len(ids), frame, np.int64))
         obs_xy.append(pts)
+        if frame in shared:
+            seen_in[frame].append(ids)
 
-    for n in order:
-        fm = by_index[n]
+    for node in order:
+        fm = by_node[node]
+        n = fm.index
         lookup = MotionLookup.from_frame(fm, skip_zero=p.skip_zero, prev_only=p.prev_only)
 
-        if arrivals[n]:
-            a_ids, a_pts, a_prev = (np.concatenate(c) for c in zip(*arrivals.pop(n)))
+        if arrivals[node]:
+            a_ids, a_pts, a_prev = (np.concatenate(c) for c in zip(*arrivals.pop(node)))
+            if seen_in[n]:  # the image was already reached through its other decoded frame
+                fresh = ~np.isin(a_ids, np.concatenate(seen_in[n]))
+                n_revisits += int(len(fresh) - fresh.sum())
+                a_ids, a_pts, a_prev = a_ids[fresh], a_pts[fresh], a_prev[fresh]
         else:
-            arrivals.pop(n, None)
+            arrivals.pop(node, None)
             a_ids = np.zeros(0, np.int64)
             a_pts = np.zeros((0, 2))
             a_prev = np.zeros((0, 2))
@@ -193,13 +215,14 @@ def build_tracks(frames: list[FrameMotion], params: TrackParams | None = None) -
         if not len(ids):
             continue
 
-        v, m = lookup.query(pts)
+        v, m, ref_node = lookup.query_nodes(pts)
         nxt = pts + v
         valid = (m >= 0) & (nxt[:, 0] >= 0) & (nxt[:, 0] < fm.width)
         valid &= (nxt[:, 1] >= 0) & (nxt[:, 1] < fm.height)
+        step = np.where((m > n)[:, None], -v, v)  # motion towards earlier frames
 
         if p.cosine_enabled:
-            viol = valid & ~cosine_ok(prev, v, p.eps, p.tau)
+            viol = valid & ~cosine_ok(prev, step, p.eps, p.tau)
             n_violations += int(viol.sum())
             if viol.any():
                 if p.on_violation == "cut":  # the track ends here
@@ -214,10 +237,10 @@ def build_tracks(frames: list[FrameMotion], params: TrackParams | None = None) -
                     ids = ids.copy()
                     ids[viol] = new_ids
 
-        for ref in np.unique(m[valid]):
-            sel = valid & (m == ref)
-            if int(ref) in by_index:
-                arrivals[int(ref)].append((ids[sel], nxt[sel], v[sel]))
+        for ref in np.unique(ref_node[valid]):
+            sel = valid & (ref_node == ref)
+            if int(ref) in by_node:
+                arrivals[int(ref)].append((ids[sel], nxt[sel], step[sel]))
 
     track = np.concatenate(obs_t) if obs_t else np.zeros(0, np.int64)
     frame = np.concatenate(obs_f) if obs_f else np.zeros(0, np.int64)
@@ -241,6 +264,8 @@ def build_tracks(frames: list[FrameMotion], params: TrackParams | None = None) -
         "kept_tracks": int(keep.sum()),
         "observations": len(track),
     }
+    if shared:
+        stats["revisits_stopped"] = n_revisits
     return Tracks(track[o], frame[o], xy[o], stats)
 
 
@@ -273,12 +298,22 @@ def tracks_to_matches(
                 f"{total:,} matches from {tracks.num_tracks:,} tracks exceed max_matches="
                 f"{max_matches:,}; pass --max-pair-gap (e.g. 10) or a coarser --grid"
             )
-    kp_idx = np.zeros(len(tracks.track), np.int64)
-    keypoints: dict[int, np.ndarray] = {}
-    for f in np.unique(tracks.frame):
-        sel = np.flatnonzero(tracks.frame == f)
-        kp_idx[sel] = np.arange(len(sel))
-        keypoints[int(f)] = tracks.xy[sel].astype(np.float32)
+    # Keypoints of a frame are its observations in track order. Frames are also
+    # replaced by their rank, which fits in 16 bits, so that sorting tens of
+    # millions of matches by frame pair below is a linear-time radix sort.
+    n_obs = len(tracks.track)
+    by_frame = np.argsort(tracks.frame, kind="stable")
+    fs = tracks.frame[by_frame]
+    first = np.flatnonzero(np.r_[True, fs[1:] != fs[:-1]]) if n_obs else np.zeros(0, np.int64)
+    counts = np.diff(np.r_[first, n_obs])
+    n_frames = len(first)
+    rank = np.empty(n_obs, np.uint16 if n_frames <= 1 << 16 else np.int64)
+    rank[by_frame] = np.repeat(np.arange(n_frames), counts)
+    kp_idx = np.empty(n_obs, np.int64)
+    kp_idx[by_frame] = np.arange(n_obs) - np.repeat(first, counts)
+    keypoints: dict[int, np.ndarray] = {
+        int(fs[s]): tracks.xy[by_frame[s : s + c]].astype(np.float32) for s, c in zip(first, counts)
+    }
 
     lengths = tracks.lengths()
     starts = np.concatenate([[0], np.cumsum(lengths)[:-1]]) if len(lengths) else lengths
@@ -295,22 +330,33 @@ def tracks_to_matches(
     pa = np.concatenate(pa_list)
     pb = np.concatenate(pb_list)
 
-    fa, fb = tracks.frame[pa], tracks.frame[pb]
-    swap = fa > fb
-    pa, pb = np.where(swap, pb, pa), np.where(swap, pa, pb)
-    fa, fb = tracks.frame[pa], tracks.frame[pb]
+    # Orient every match from the earlier to the later frame. Tracks are stored
+    # in descending frame order, so normally every pair is swapped.
+    ra, rb = rank[pa], rank[pb]
+    swap = ra > rb
+    if swap.all():
+        pa, pb, ra, rb = pb, pa, rb, ra
+    elif swap.any():
+        pa, pb = np.where(swap, pb, pa), np.where(swap, pa, pb)
+        ra, rb = rank[pa], rank[pb]
     if max_pair_gap is not None:
-        ok = (fb - fa) <= max_pair_gap
-        pa, pb, fa, fb = pa[ok], pb[ok], fa[ok], fb[ok]
+        ok = (tracks.frame[pb] - tracks.frame[pa]) <= max_pair_gap
+        pa, pb, ra, rb = pa[ok], pb[ok], ra[ok], rb[ok]
 
-    o = np.lexsort((fb, fa))
-    pa, pb, fa, fb = pa[o], pb[o], fa[o], fb[o]
-    key = fa * (int(fb.max()) + 1 if len(fb) else 1) + fb
-    cuts = np.flatnonzero(np.diff(key)) + 1
+    # Group by frame pair, keeping the generation order within a pair: the
+    # order of np.lexsort((rb, ra)), as two stable (radix) sorts of 16-bit ranks.
+    if rank.dtype == np.uint16:
+        o = np.argsort(rb, kind="stable")
+        o = o[np.argsort(ra[o], kind="stable")]
+    else:
+        o = np.lexsort((rb, ra))
+    pa, pb, ra, rb = pa[o], pb[o], ra[o], rb[o]
+    cuts = np.flatnonzero((ra[1:] != ra[:-1]) | (rb[1:] != rb[:-1])) + 1
+    bounds = np.r_[0, cuts, len(pa)] if len(pa) else np.zeros(1, np.int64)
+    kp_pairs = np.empty((len(pa), 2), np.uint32)
+    kp_pairs[:, 0] = kp_idx[pa]
+    kp_pairs[:, 1] = kp_idx[pb]
     matches: dict[tuple[int, int], np.ndarray] = {}
-    for seg_a, seg_b in zip(np.split(pa, cuts), np.split(pb, cuts)):
-        if not len(seg_a):
-            continue
-        pair = (int(tracks.frame[seg_a[0]]), int(tracks.frame[seg_b[0]]))
-        matches[pair] = np.stack([kp_idx[seg_a], kp_idx[seg_b]], axis=1).astype(np.uint32)
+    for s, e in pairwise(bounds):
+        matches[(int(tracks.frame[pa[s]]), int(tracks.frame[pb[s]]))] = kp_pairs[s:e]
     return MatchGraph(keypoints, matches)

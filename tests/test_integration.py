@@ -1,8 +1,12 @@
 """End-to-end checks on a real AV1 encode of a synthetic sequence with known motion.
 
-Run once per software encoder (libaom, SVT-AV1) that the ffmpeg in use provides;
-skipped when ffmpeg or the patched dav1d shim is unavailable.
+Run once per software encoder (libaom, SVT-AV1) that the ffmpeg in use provides,
+and once on a random-access libaom stream (hidden alt-ref frames, future
+references), as found in ordinary AV1 videos; skipped when ffmpeg or the
+patched dav1d shim is unavailable.
 """
+
+import subprocess
 
 import cv2
 import numpy as np
@@ -12,6 +16,7 @@ from av1sfm._vendor import dav1d_inspect
 from av1sfm.blocks import frame_block_motion
 from av1sfm.encode import EncodeParams, available_encoders, encode_images, find_ffmpeg
 from av1sfm.extract import load_frame_motion
+from av1sfm.pipeline import clamp_to_image_size
 from av1sfm.tracks import TrackParams, build_tracks, tracks_to_matches
 from av1sfm.validate import score_frame
 
@@ -51,10 +56,18 @@ def to_texture(M: np.ndarray, x: np.ndarray) -> np.ndarray:
     return (x - M[:, 2]) @ np.linalg.inv(M[:, :2]).T
 
 
-@pytest.fixture(scope="module", params=["libaom", "svtav1"])
+def encode_random_access(pattern: str, ivf) -> None:
+    """libaom's default good-quality mode: alt-refs coded ahead and shown later."""
+    cmd = [find_ffmpeg(), "-hide_banner", "-loglevel", "error", "-y", "-framerate", "10"]
+    cmd += ["-i", pattern, "-vf", "format=yuv420p", "-c:v", "libaom-av1", "-cpu-used", "8"]
+    subprocess.run(cmd + ["-crf", "20", "-g", "1000", "-f", "ivf", str(ivf)], check=True)
+
+
+@pytest.fixture(scope="module", params=["libaom", "svtav1", "libaom-ra"])
 def clip(request, tmp_path_factory):
-    if request.param not in ENCODERS:
-        pytest.skip(f"{request.param} not available in this ffmpeg")
+    encoder = request.param.removesuffix("-ra")
+    if encoder not in ENCODERS:
+        pytest.skip(f"{encoder} not available in this ffmpeg")
     tmp = tmp_path_factory.mktemp(f"clip_{request.param}")
     rng = np.random.default_rng(1)
     tex = cv2.GaussianBlur(rng.random((1000, 1400)).astype(np.float32), (0, 0), 2.5)
@@ -71,17 +84,28 @@ def clip(request, tmp_path_factory):
         paths.append(p)
         images[n] = img
     ivf = tmp / "clip.ivf"
-    encode_images(paths, ivf, EncodeParams(encoder=request.param, crf=20))
-    return load_frame_motion(ivf), images
+    if request.param == "libaom-ra":
+        encode_random_access(str(tmp / "%03d.png"), ivf)
+    else:
+        encode_images(paths, ivf, EncodeParams(encoder=request.param, crf=20))
+    frames = load_frame_motion(ivf)
+    clamp_to_image_size(frames, paths[0])  # as the pipeline does (padded SVT-AV1 frames)
+    return frames, images
 
 
 def test_frame_indices_and_references(clip):
     frames, _ = clip
-    assert [f.index for f in frames] == list(range(N))
+    assert sorted(f.index for f in frames) == list(range(N))  # one decoded frame per image
+    assert [f.decode_index for f in frames] == list(range(N))
     assert frames[0].is_intra and not frames[1].is_intra
-    for f in frames[1:]:  # every reference actually used is an earlier frame
+    later = 0
+    for f in frames[1:]:  # every reference actually used was decoded before
         used = np.unique(f.ref[..., 0][f.ref[..., 0] >= 1])
-        assert all(0 <= f.ref_frame_index[s - 1] < f.index for s in used)
+        assert all(0 <= f.ref_decode_index[s - 1] < f.decode_index for s in used)
+        assert all(0 <= f.ref_frame_index[s - 1] != f.index for s in used)
+        later += sum(f.ref_frame_index[s - 1] > f.index for s in used)
+    low_delay = [f.index for f in frames] == list(range(N))
+    assert (later == 0) == low_delay  # random access: some blocks use later frames
 
 
 def test_block_mvs_match_ground_truth_motion(clip):
@@ -105,11 +129,17 @@ def test_block_mvs_match_ground_truth_motion(clip):
 def test_warping_with_mvs_beats_identity_and_flipped_sign(clip):
     frames, images = clip
     imgs = {k: v.astype(np.float32) for k, v in images.items()}
+    coverage = []
     for f in frames[1:]:
         s = score_frame(f, imgs)
-        assert s is not None and s.coverage > 0.8
+        assert s is not None
         assert s.mae_warp < 0.2 * s.mae_identity, s
         assert s.mae_warp < 0.2 * s.mae_flipped, s
+        coverage.append(s.coverage)
+    # A random-access alt-ref is predicted from the key frame several frames
+    # back and codes about half its blocks as intra; other frames are covered.
+    low_delay = [f.index for f in frames] == list(range(N))
+    assert min(coverage) > (0.8 if low_delay else 0.4) and np.median(coverage) > 0.8, coverage
 
 
 def test_tracks_on_real_encode_are_geometrically_consistent(clip):

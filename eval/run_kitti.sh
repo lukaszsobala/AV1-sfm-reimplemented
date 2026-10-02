@@ -34,7 +34,8 @@ step() { local out="$1"; shift; [ -e "$out" ] && { echo "skip: $out exists"; ret
 # Rectified left colour camera (P2): f, cx, cy; k = 0 for SIMPLE_RADIAL.
 K="718.856,607.1928,185.2157,0"
 # KITTI drives forward: the default initial-pair constraints never accept a pair.
-MAPPER_ARGS="--init-max-forward-motion 1.0 --init-min-tri-angle 4"
+# Camera poses are compared with the KITTI ground truth (eval/pose_error.py).
+MAPPER_ARGS="--init-max-forward-motion 1.0 --init-min-tri-angle 4 --kitti-sequence data/kitti/00"
 
 [ -d data/kitti/00/image_2 ] && [ "$(ls data/kitti/00/image_2 | wc -l)" -ge 230 ] \
   || $RUN python eval/fetch_kitti.py --sequence 00 --frames 230 --camera image_2 --out data/kitti

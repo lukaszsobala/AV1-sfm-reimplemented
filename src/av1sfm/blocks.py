@@ -109,6 +109,8 @@ def frame_block_motion(
         use_compound: also emit the list-1 MV of compound (two-reference) blocks.
         prev_only: keep only MVs whose reference is the immediately previous
             frame (the paper's "every MV points to the previous frame").
+            Otherwise any earlier or later frame is accepted, but not another
+            decoded frame shown at the same time (an overlay's hidden frame).
         keep_out_of_frame: keep correspondences whose target lies outside the
             reference image.
     """
@@ -142,7 +144,7 @@ def frame_block_motion(
         if skip_zero:
             ok &= np.any(mv != 0.0, axis=-1)
         ref_frame = slot_to_frame[np.clip(slot, 0, 7)]
-        ok &= ref_frame < fm.index
+        ok &= (ref_frame >= 0) & (ref_frame != fm.index)
         if prev_only:
             ok &= ref_frame == fm.index - 1
         if not keep_out_of_frame:
@@ -167,7 +169,7 @@ def frame_block_motion(
 
 @dataclass
 class MotionLookup:
-    """Per-4x4-cell motion used to propagate an arbitrary point one step back.
+    """Per-4x4-cell motion used to propagate an arbitrary point to a reference.
 
     For compound blocks we follow the MV whose reference is temporally nearest
     (list 0 on ties), since tracks link consecutive frames.
@@ -177,7 +179,8 @@ class MotionLookup:
     width: int
     height: int
     mv: np.ndarray  # (H/4, W/4, 2) float64 pixels
-    ref_frame: np.ndarray  # (H/4, W/4) int64, -1 where unusable
+    ref_frame: np.ndarray  # (H/4, W/4) int64 display index, -1 where unusable
+    ref_node: np.ndarray  # (H/4, W/4) int64 decode index of the reference, -1 where unusable
 
     @classmethod
     def from_frame(
@@ -185,33 +188,38 @@ class MotionLookup:
     ) -> MotionLookup:
         gh, gw = fm.block_map.shape
         if fm.is_intra or fm.mv.size == 0:
-            return cls(
-                fm.index,
-                fm.width,
-                fm.height,
-                np.zeros((gh, gw, 2)),
-                np.full((gh, gw), -1, np.int64),
-            )
+            none = np.full((gh, gw), -1, np.int64)
+            return cls(fm.index, fm.width, fm.height, np.zeros((gh, gw, 2)), none, none.copy())
         slot_to_frame = np.array((-1,) + fm.ref_frame_index, dtype=np.int64)
-        cand_mv, cand_ref = [], []
+        slot_to_node = np.array((-1,) + fm.ref_decode_index, dtype=np.int64)
+        cand_mv, cand_ref, cand_node = [], [], []
         for lst in (0, 1):
-            slot = fm.ref[..., lst].astype(np.int64)
+            slot = np.clip(fm.ref[..., lst].astype(np.int64), 0, 7)  # 0: intra / none
             mv = fm.mv[..., 2 * lst : 2 * lst + 2].astype(np.float64) / 8.0
-            ref = np.where(slot >= 1, slot_to_frame[np.clip(slot, 0, 7)], -1)
-            bad = (ref >= fm.index) | (ref < 0)
+            ref, node = slot_to_frame[slot], slot_to_node[slot]
+            bad = (ref < 0) | (node < 0) | (ref == fm.index)
             if skip_zero:
                 bad |= np.all(mv == 0.0, axis=-1)
             if prev_only:
                 bad |= ref != fm.index - 1
             cand_mv.append(mv)
             cand_ref.append(np.where(bad, -1, ref))
-        use1 = cand_ref[1] > cand_ref[0]  # nearer reference; -1 never wins
+            cand_node.append(np.where(bad, -1, node))
+        # Nearer reference in time, list 0 on ties; an unusable one never wins.
+        dist = [np.where(r >= 0, np.abs(fm.index - r), np.iinfo(np.int64).max) for r in cand_ref]
+        use1 = dist[1] < dist[0]
         mv = np.where(use1[..., None], cand_mv[1], cand_mv[0])
         ref = np.where(use1, cand_ref[1], cand_ref[0])
-        return cls(fm.index, fm.width, fm.height, mv, ref)
+        node = np.where(use1, cand_node[1], cand_node[0])
+        return cls(fm.index, fm.width, fm.height, mv, ref, node)
 
     def query(self, pts: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """MV (pixels) and reference frame (-1 if none) of the cell holding each point."""
+        mv, ref, _ = self.query_nodes(pts)
+        return mv, ref
+
+    def query_nodes(self, pts: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """MV, reference display index and reference decode index (-1 if none) per point."""
         gh, gw = self.ref_frame.shape
         cx = np.floor(pts[:, 0] / 4.0).astype(np.int64)
         cy = np.floor(pts[:, 1] / 4.0).astype(np.int64)
@@ -227,4 +235,5 @@ class MotionLookup:
         cy = np.clip(cy, 0, gh - 1)
         mv = self.mv[cy, cx]
         ref = np.where(inb, self.ref_frame[cy, cx], -1)
-        return mv, ref
+        node = np.where(inb, self.ref_node[cy, cx], -1)
+        return mv, ref, node

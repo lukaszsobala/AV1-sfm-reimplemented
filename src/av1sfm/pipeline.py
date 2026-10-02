@@ -15,7 +15,7 @@ import pycolmap
 
 from .colmap_db import CameraSpec, create_database, two_view_options, write_match_graph
 from .encode import EncodeParams, encode_images, list_images
-from .extract import FrameMotion, load_frame_motion
+from .extract import FrameMotion, load_frame_motion, num_shown_frames
 from .geometry import PairScore, RansacSettings, score_pair, summarize
 from .timing import Timer
 from .tracks import TrackParams, build_tracks, tracks_to_matches
@@ -39,7 +39,7 @@ def run_mv_matching(
     *,
     encode: bool = True,
 ) -> dict:
-    """Run the MV pipeline. The i-th decoded frame is the i-th image (sorted by name).
+    """Run the MV pipeline. The i-th displayed frame is the i-th image (sorted by name).
 
     With `encode=False` an existing IVF is used (the "MVs come for free with the
     video" scenario); the encode stage is then absent from the timings.
@@ -53,8 +53,8 @@ def run_mv_matching(
             ffmpeg_cmd = encode_images(images, ivf_path, cfg.encode)
     with timer.stage("extract"):
         frames = load_frame_motion(ivf_path, n_threads=cfg.decoder_threads)
-    if len(frames) != len(images):
-        raise ValueError(f"{len(frames)} decoded frames but {len(images)} images")
+    if num_shown_frames(frames) != len(images):
+        raise ValueError(f"{num_shown_frames(frames)} displayed frames but {len(images)} images")
     clamp_to_image_size(frames, images[0])
     with timer.stage("tracks"):
         tracks = build_tracks(frames, cfg.track)
@@ -77,6 +77,11 @@ def run_mv_matching(
             "max_length": int(lengths.max()) if len(lengths) else 0,
         },
         "keypoints_per_image": float(kp.mean()),
+        "stream": {
+            "decoded_frames": len(frames),
+            "shown_frames": num_shown_frames(frames),
+            "low_delay": all(f.decode_index == f.index for f in frames),
+        },
         "database": db_stats,
         "num_images": len(images),
         "ffmpeg_command": ffmpeg_cmd,

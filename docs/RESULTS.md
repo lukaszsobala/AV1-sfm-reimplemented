@@ -184,6 +184,106 @@ SfM, COLMAP default intrinsics refinement:
 | SIFT sequential, exact matching (PyTorch) | 117/117 | 35,323 | 0.375 | 7.39 | 48.0 | 2.9 |
 | DISK + LightGlue sequential (overlap 10) | 117/117 | 44,244 | 0.890 | 11.03 | 173.3 | 7.0 |
 
+## Speed: where the time goes and the mapper defaults (Lunar Lake, Performance profile)
+
+Measured on the Lunar Lake laptop in the "Performance" power profile, on the
+databases of the table above (KITTI 00, frames 0–116, intrinsics fixed at
+the calibration) and on exact SIFT for frames 0–229. Pose accuracy is
+measured against the KITTI ground truth with `eval/pose_error.py`: absolute
+trajectory error (ATE) of the camera centres after a similarity alignment,
+and relative pose error (RPE) over 1 and 10 frames. The ground-truth path is
+90.9 m long for 117 frames and 160.0 m for 230.
+
+**Where the time goes.** Up to the mapper, COLMAP's geometric verification
+dominates MV matching (VA-API: 21.9 s of about 24 s; 31 s in the Balanced
+profile); encoding, MV extraction, tracks and database writing take about
+2 s together. In the mapper, the log line "Retriangulation and Global bundle
+adjustment" is almost entirely bundle adjustment: retriangulation itself
+takes well under 1 % of the mapper's time on both kinds of database. With
+COLMAP's settings plus pruning, the exact-SIFT mapper (31 s) spends 41 % in
+global and 31 % in local bundle adjustment and 16 % completing and merging
+tracks; the VA-API mapper (145 s) 40 % in local and 19 % in global bundle
+adjustment, 25 % completing and merging tracks and 8 % triangulating new
+images. Most local bundle adjustments of the SIFT database have fewer than
+50,000 residuals and run single-threaded; letting Ceres use all threads for
+them (`ba_min_num_residuals_for_cpu_multi_threading`) was slower.
+
+**Mapper defaults.** `eval/run_mapper.py` and `av1sfm reconstruct` change two
+COLMAP settings that cost time without improving the reconstruction
+(av1sfm.mapping): global bundle adjustments skip redundant 3D points
+(`--prune-redundant-points`, COLMAP's `ba_global_ignore_redundant_points3D`),
+and each registered image gets one local bundle adjustment instead of up to
+two (`--ba-local-refinements 1`). The tables above were made with COLMAP's
+settings (`--no-prune-redundant-points --ba-local-refinements 2`).
+
+| Database | Mapper settings | Mapper wall (s) | 3D points | Reproj. error (px) | ATE RMSE (m) | RPE 1 frame (m) | RPE 10 frames (m) | RPE 10 frames (°) |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| exact SIFT, 117 frames | COLMAP's | 31.1 | 35,350 | 0.381 | 0.202 | 0.0384 | 0.240 | 0.287 |
+| | pruning | 26.7 | 35,347 | 0.382 | 0.205 | 0.0384 | 0.241 | 0.288 |
+| | pruning, 1 local refinement (**default**) | 22.3 | 35,303 | 0.381 | 0.205 | 0.0384 | 0.241 | 0.288 |
+| | default, `--ba-global-ratio 1.2` | 20.3 | 35,303 | 0.381 | 0.209 | 0.0385 | 0.242 | 0.288 |
+| exact SIFT, 230 frames | COLMAP's | 67.1 | 59,302 | 0.392 | 1.301 | 0.0493 | 0.412 | 0.260 |
+| | pruning | 58.5 | 59,298 | 0.394 | 1.291 | 0.0491 | 0.410 | 0.262 |
+| | pruning, 1 local refinement (**default**) | 51.0 | 59,185 | 0.393 | 1.282 | 0.0489 | 0.408 | 0.262 |
+| | default, `--ba-global-ratio 1.2` | 41.9 | 59,182 | 0.392 | 1.272 | 0.0488 | 0.406 | 0.261 |
+| VA-API, 117 frames | COLMAP's | 177.3 | 114,328 | 0.598 | 0.250 | 0.0400 | 0.259 | 0.278 |
+| | pruning | 152.4 | 114,246 | 0.600 | 0.234 | 0.0391 | 0.251 | 0.282 |
+| | pruning, 1 local refinement (**default**) | 111.4 | 113,842 | 0.597 | 0.237 | 0.0392 | 0.252 | 0.282 |
+| | default, `--ba-global-ratio 1.2` | 98.9 | 113,878 | 0.597 | 0.237 | 0.0392 | 0.252 | 0.283 |
+| libaom, 117 frames | COLMAP's | 731.5 | 201,751 | 0.893 | 0.225 | 0.0392 | 0.250 | 0.300 |
+| | pruning | 471.6 | 201,499 | 0.893 | 0.180 | 0.0370 | 0.233 | 0.292 |
+| | pruning, 1 local refinement (**default**) | 412.3 | 201,024 | 0.890 | 0.170 | 0.0365 | 0.229 | 0.290 |
+
+- Every setting registers all images. The defaults make the mapper 24–44 %
+  faster than COLMAP's settings (exact SIFT 117 frames: 31.1 → 22.3 s;
+  libaom: 732 → 412 s) with 0.1–0.4 % fewer points, a reprojection error
+  within 0.001 px, and pose errors at most 1.5 % higher (exact SIFT, 117
+  frames) and lower on VA-API (trajectory error −5 %) and libaom (−24 %).
+  Any small change to the
+  optimisation moves the pose errors by about that much in either direction
+  (pruning alone: −20 % to +1.5 %); repeating a run with the same settings
+  moves them by about 0.1 %.
+- `--ba-global-ratio 1.2` (COLMAP's `ba_global_frames_ratio` and
+  `ba_global_points_ratio`, 1.1) runs global bundle adjustments less often:
+  another 9–18 % faster. The trajectory error was 2 % higher on exact SIFT
+  (117 frames), unchanged on VA-API and 1 % lower on exact SIFT (230 frames).
+  It is not a default. 1.4 was 16 %
+  faster than the default on exact SIFT, with a 2.5 % higher trajectory error.
+- Each global refinement (bundle adjustment, track completion, filtering,
+  repeated up to `ba_global_max_refinements = 5` times) stops after one or
+  two rounds, so lowering that limit to 2 saved nothing (26.5 s).
+
+**Global mapper.** COLMAP's global mapper (GLOMAP, `--mapper global`) is
+faster, but not like for like (same databases, COLMAP's incremental settings
+for comparison):
+
+| Database | Mapper | Mapper wall (s) | 3D points | Reproj. error (px) | ATE RMSE (m) | RPE 1 frame (m) | RPE 10 frames (m) | RPE 10 frames (°) |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| VA-API | global, all tracks | 161.6 | 110,864 | 0.608 | 0.266 | 0.0407 | 0.265 | 0.277 |
+| VA-API | global, 1000 tracks / image | 58.5 | 110,389 | 0.601 | 0.268 | 0.0407 | 0.266 | 0.277 |
+| libaom | global, all tracks | 246.6 | 176,709 | 0.918 | 0.247 | 0.0404 | 0.260 | 0.283 |
+| libaom | global, 1000 tracks / image | 95.9 | 172,218 | 0.888 | 0.824 | 0.0654 | 0.534 | 0.329 |
+
+It gives 3 % (VA-API) to 12 % (libaom) fewer points and slightly worse
+poses; positioning the cameras with 1000 tracks per image
+(`--global-tracks-per-view`) is harmless on the clean VA-API matches, but on
+libaom's noisier matches the trajectory error grows 3.7×.
+
+**Exact SIFT matching.** On the GPU, the exact matcher keeps several pairs in
+flight, so that the GPU computes while the CPU checks exactness and applies
+COLMAP's tests, and takes the column-wise top two by masking the maximum
+instead of a strided `topk`: the 1,115 sequential pairs take 9.3 s instead of
+12.3 s, with the same 1,021,246 matches pair for pair. With COLMAP's
+verification (2.7 s) and SIFT extraction (7.4 s), the exact-SIFT front end
+takes about 20 s, and with the default mapper about 42 s up to a
+reconstruction (`av1sfm reconstruct --matcher sift`).
+
+**Copied AV1 videos.** On KITTI frames 0–39 encoded by libaom in its default
+good-quality mode (random access: hidden alt-refs, 41 % of MVs to later
+frames), copying the stream (`av1sfm reconstruct video.mp4`) gives a model in
+8.4 s with 16 k points and 1.34 m trajectory error over 31 m; re-encoding the
+frames with low-delay libaom gives 72 k points and 0.22 m, in 124 s (ASSUMPTIONS.md M9).
+
 ## Findings
 
 - **Reproducibility.** libaom MV matching is deterministic across machines:

@@ -31,6 +31,19 @@ def test_svtav1_low_delay_rtc():
     assert params == ["pred-struct=1", "rtc=1", "keyint=-1", "lp=4", "enable-tf=0"]
 
 
+def test_svtav1_pads_odd_sizes_only():
+    def vf(size, encoder="svtav1"):
+        c = ffmpeg_command(
+            SRC, "o.ivf", EncodeParams(encoder=encoder), num_frames=3, size=size, ffmpeg="ffmpeg"
+        )
+        return opt(c, "-vf")
+
+    assert vf((1241, 376)) == "pad=1242:376,fillborders=right=1:bottom=0:mode=smear,format=yuv420p"
+    assert vf((321, 181)) == "pad=322:182,fillborders=right=1:bottom=1:mode=smear,format=yuv420p"
+    assert vf((1920, 1280)) == "format=yuv420p"
+    assert vf((1241, 376), encoder="libaom") == "format=yuv420p"  # libaom codes odd sizes
+
+
 def test_vulkan_uploads_to_device_and_disables_b_frames():
     c = cmd_for(encoder="vulkan", qp=100, hw_device="1")
     assert c[c.index("-init_hw_device") + 1] == "vulkan=vk:1"

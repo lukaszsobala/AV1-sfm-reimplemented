@@ -37,6 +37,8 @@ def main(ivf: str) -> None:
         slot_frame = np.array((-1,) + f.ref_frame_index)
         for lst in (0, 1):
             ok = ref[:, lst] >= 1
+            ok[ok] = slot_frame[ref[ok, lst]] >= 0
+            # positive: an earlier frame; negative: a later frame (future reference)
             gaps.update((f.index - slot_frame[ref[ok, lst]]).tolist())
         sizes.update(
             f"{AOM_BLOCK_SIZES[b][0]}x{AOM_BLOCK_SIZES[b][1]}" for b in f.block_map[gy, gx]

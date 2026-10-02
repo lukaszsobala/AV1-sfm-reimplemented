@@ -9,11 +9,13 @@ Installation, commands and options. For what the software does, see the
 
 ```
 images ──ffmpeg: libaom | SVT-AV1 | Vulkan Video | QSV | VA-API (low delay, 1 keyframe)──▶ clip.ivf
+AV1 video ──ffmpeg -c:v copy (no re-encoding)──▶ clip.ivf, and its frames ──▶ images
 clip.ivf ──patched dav1d (in-memory block metadata)──▶ per-frame 4×4 MV grids
    ──collapse to coded blocks──▶ block-centre keypoints + MV targets
    ──propagate through the MV chain, cosine filter, min length 3──▶ tracks
    ──all pairs along each track (triangular adjacency)──▶ matches
    ──pycolmap──▶ database.db (keypoints, matches, two_view_geometries)
+   ──COLMAP incremental mapper──▶ sparse/0 ──▶ points.ply
 ```
 
 | Module | Role |
@@ -25,10 +27,12 @@ clip.ivf ──patched dav1d (in-memory block metadata)──▶ per-frame 4×4 
 | `src/av1sfm/colmap_db.py` | Writes keypoints, matches and two-view geometries into a COLMAP database. |
 | `src/av1sfm/geometry.py` | Pairwise scoring: E (five-point) vs H (DLT) with LO-RANSAC, inlier ratio, Sampson error. |
 | `src/av1sfm/validate.py` | Checks the MV convention by warping reference frames. |
-| `src/av1sfm/pipeline.py`, `cli.py` | The `av1sfm` command (`match`, `encode`, `encoders`, `score`, `validate-warp`) and its run statistics. |
-| `src/av1sfm/sift_exact.py` | Exact SIFT matching on a PyTorch device, identical to COLMAP's brute-force matcher. |
+| `src/av1sfm/pipeline.py`, `cli.py` | The `av1sfm` command (`reconstruct`, `match`, `encode`, `encoders`, `score`, `validate-warp`) and its run statistics. |
+| `src/av1sfm/reconstruct.py`, `video.py` | `av1sfm reconstruct`: images or a video → matches → reconstruction → PLY; probing videos, copying AV1 streams to IVF, extracting frames. |
+| `src/av1sfm/mapping.py`, `export.py` | Mapper settings shared by all methods; PLY and undistorted-workspace export. |
+| `src/av1sfm/sift.py`, `sift_exact.py` | SIFT extraction and matching with the shared settings; exact matching on a PyTorch device, identical to COLMAP's brute-force matcher. |
 | `src/av1sfm/learned.py`, `devices.py` | DISK + LightGlue baseline (kornia) and PyTorch device selection. |
-| `eval/` | Evaluation: dataset download, SIFT / DISK baselines, mapper, tables, export, GPU checks. |
+| `eval/` | Evaluation: dataset download, SIFT / DISK baselines, mapper, pose accuracy against KITTI ground truth, tables, export, GPU checks. |
 | `src/av1sfm/_vendor/`, `third_party/av1of/` | Extraction layer vendored from [sigmedia/AV1-Optical-Flow](https://github.com/sigmedia/AV1-Optical-Flow) (AGPL-3.0). |
 
 ## Setup
@@ -78,6 +82,45 @@ matchers need PyTorch's Intel-GPU build ([below](#gpu-matchers-pytorch-intel-gpu
 
 Commands are shown with `uv run`; inside an active virtualenv, leave it out.
 
+### In one command: `av1sfm reconstruct`
+
+```bash
+uv run av1sfm reconstruct video.mp4 out/                  # AV1 motion vectors
+uv run av1sfm reconstruct frames/ out/ --encoder vaapi     # a folder of frames, Intel GPU encoder
+uv run av1sfm reconstruct frames/ out/ --matcher sift      # exact SIFT matching on the GPU
+uv run av1sfm reconstruct kitti/image_2/ out/ --camera-params 718.856,607.1928,185.2157,0 \
+    --fix-intrinsics --init-max-forward-motion 1.0 --init-min-tri-angle 4   # a driving sequence
+```
+
+INPUT is a folder of frames (in display order when sorted by name) or a video
+file. OUT_DIR receives `images/` (the frames of a video), `clip.ivf`,
+`database.db`, `sparse/0/` (the COLMAP model, viewable in the COLMAP GUI),
+`points.ply` and `reconstruct.json` (settings, stage timings, statistics);
+`--export-dataset` adds the undistorted workspace of
+[Viewing and using a reconstruction](#viewing-and-using-a-reconstruction).
+
+- **AV1 videos are not re-encoded.** Their stream is copied into `clip.ivf`
+  (`-c:v copy`), so the encoder's motion vectors come for free. Frames are
+  extracted with every frame kept, MP4 edit lists ignored and the rotation of
+  phone videos not applied, so that frame i is the i-th frame of the stream.
+  Ordinary AV1 videos are random access (hidden alt-ref frames, references
+  to later frames); this is supported (ASSUMPTIONS.md M9), but their tracks
+  are shorter than in a low-delay stream: on KITTI frames 0–39, a copied
+  libaom stream gave 16 k points and 1.3 m trajectory error, a low-delay
+  re-encode 72 k points and 0.22 m. `--reencode` encodes AV1 videos as well.
+- **Other videos and image folders** are encoded with `--encoder` (default
+  libaom; `vaapi` or `qsv` on Intel GPUs) in the low-delay configuration.
+  `--ivf` uses an existing AV1 stream of an image folder.
+- **`--matcher sift`** uses COLMAP SIFT features instead of motion vectors,
+  with exact sequential matching on a PyTorch device (`--sift-matcher exact`,
+  `--sift-matching sequential`, `--sift-overlap 10`), the same as
+  `eval/run_sift.py --matching sequential --matcher exact`.
+- The MV options of `match` (below), the encoder options and the mapper
+  options of `eval/run_mapper.py` (below) apply. Without `--camera-params`,
+  COLMAP's prior focal length (1.2 × the larger image side) is refined.
+
+### Step by step
+
 ```bash
 # 1. image folder (frames in display order, sorted by name) -> MV matches in a COLMAP database
 uv run av1sfm match path/to/images out/database.db --ivf out/clip.ivf --encode \
@@ -112,7 +155,30 @@ Main `match` options (defaults in brackets):
 | `--svt-preset` [10], `--svt-params` | SVT-AV1 preset and extra `key=value:...` parameters. |
 | `--hw-device` | Vulkan device index, or QSV / VA-API DRM render node (e.g. `/dev/dri/renderD128`). |
 
+`eval/run_mapper.py` options (also accepted by `av1sfm reconstruct`). The
+default is COLMAP's incremental mapper with two settings changed for every
+method, which make it 24–44 % faster on KITTI without changing the accuracy:
+global bundle adjustments skip redundant 3D points, and each registered image
+gets one local bundle adjustment instead of up to two
+([RESULTS.md](RESULTS.md#speed-where-the-time-goes-and-the-mapper-defaults-lunar-lake-performance-profile)
+has the measurements). `--no-prune-redundant-points --ba-local-refinements 2`
+restores COLMAP's settings, as used for the published tables.
+
+| Option | Meaning |
+|---|---|
+| `--fix-intrinsics` | keep the shared camera at its initial (calibrated) value. |
+| `--init-max-forward-motion`, `--init-min-tri-angle` [0.95, 16] | initial-pair constraints; KITTI's forward drive needs 1.0 and 4. |
+| `--[no-]prune-redundant-points` [on] | incremental mapper; global bundle adjustments skip 3D points that add little image coverage (COLMAP's `ba_global_ignore_redundant_points3D`, off in COLMAP). |
+| `--ba-local-refinements` [1] | local bundle adjustments per registered image (COLMAP: 2). |
+| `--ba-global-ratio` [1.1] | run a global bundle adjustment when the model has grown by this factor (COLMAP's `ba_global_frames_ratio` and `ba_global_points_ratio`). 1.2 is another 9–18 % faster; the trajectory error was 2 % higher on one of three KITTI tests. |
+| `--mapper global` | COLMAP's global mapper (GLOMAP): rotation averaging and global positioning instead of image-by-image registration. About 3× faster on MV databases, with 3–12 % fewer points and slightly worse poses. |
+| `--global-tracks-per-view N` | with `--mapper global`, position the cameras with N tracks per image instead of all; every track is still triangulated afterwards. Much faster, but less accurate on noisy matches (libaom on KITTI). |
+| `--kitti-sequence DIR` | compare camera poses with the KITTI ground truth in `DIR` (`NN.txt`, `calib.txt`, as fetched by `eval/fetch_kitti.py`): absolute trajectory error after a similarity alignment and relative pose error over 1 and 10 frames (`eval/pose_error.py`). |
+
 ```bash
+# pose accuracy of any reconstruction against KITTI ground truth
+uv run python eval/pose_error.py runs/kitti117/rec_mv data/kitti/00
+
 # reconstruction -> point cloud (PLY) and an undistorted COLMAP workspace
 uv run python eval/export_model.py out/sparse path/to/images out/export
 ```
@@ -126,7 +192,7 @@ so every backend's reference structure is handled.
 | `--encoder` | FFmpeg encoder | Configuration | Status |
 |---|---|---|---|
 | `libaom` (default) | `libaom-av1` | `-usage realtime -cpu-used 6 -lag-in-frames 0 -crf 32` | The paper's encoder. Tested. 97 % of MVs reference the previous frame; quarter-pel. |
-| `svtav1` | `libsvtav1` (SVT-AV1 4.2) | `-preset 10 -crf 32 -svtav1-params pred-struct=1:rtc=1:keyint=-1` | Tested. About 4× faster to encode than libaom on KITTI, but layered references (51 % to n−1), 19 % compound blocks and noisier MVs (warp error 8.9 vs 5.1). |
+| `svtav1` | `libsvtav1` (SVT-AV1 4.2) | `-preset 10 -crf 32 -svtav1-params pred-struct=1:rtc=1:keyint=-1` | Tested. About 4× faster to encode than libaom on KITTI, but layered references (51 % to n−1), 19 % compound blocks and noisier MVs (warp error 8.9 vs 5.1). Odd frame sizes (KITTI: 1241 px) are padded by one repeated column or row, which SVT-AV1 2.x requires. |
 | `vulkan` | `av1_vulkan` (Vulkan Video) | hwupload to a Vulkan device, `-rc_mode cqp -qp 128 -bf 0 -tune ll -usage stream` | Needs `VK_KHR_video_encode_av1`: Mesa RADV (AMD RDNA3+) or ANV (Intel Arc / Xe2+). **Does not work on Intel Lunar Lake** (Ubuntu 26.04, Intel graphics PPA): the driver does not expose Vulkan video encode (ASSUMPTIONS.md E5b). Not tested on AMD. |
 | `qsv` | `av1_qsv` (oneVPL) | VA-API device, hwupload, `-preset veryfast -q:v 128 -bf 0 -look_ahead_depth 0` | Needs Intel Arc / Meteor Lake or newer with the VPL GPU runtime. Tested on Intel Lunar Lake: 117 KITTI frames in 0.6 s, all MVs to the previous frame (ASSUMPTIONS.md E5c). |
 | `vaapi` | `av1_vaapi` (VA-API) | hwupload to a VA-API device, `-rc_mode CQP -global_quality 128 -bf 0` | Needs a VA-API driver with AV1 encode (Intel media driver on Arc / Meteor Lake / Lunar Lake, Mesa on AMD RDNA3+). Tested on Intel Lunar Lake: 117 KITTI frames in 0.5 s, the most precise MVs of all encoders tested (ASSUMPTIONS.md E5f). Not tested on AMD. |
@@ -235,7 +301,7 @@ better model to move around in than KITTI's forward drive.
 
 ## Tests
 
-`tests/` (67 tests; `pytest`) uses synthetic data for:
+`tests/` (72 tests; `pytest`) uses synthetic data for:
 
 - the cosine filter (`test_cosine.py`): thresholds, τ, ε = 1;
 - MV-to-correspondence geometry (`test_blocks.py`): block collapse, centres, references, compound blocks;
@@ -243,6 +309,7 @@ better model to move around in than KITTI's forward drive.
 - the COLMAP writer (`test_colmap_db.py`) and the Sampson formulas (`test_geometry.py`);
 - an end-to-end check on a real AV1 encode of a synthetic pan + zoom with known ground truth (`test_integration.py`);
 - the exact SIFT matcher against a line-by-line port of COLMAP's brute-force loop (`test_sift_exact.py`);
-- LightGlue's dual softmax as computed on a GPU against kornia's (`test_learned.py`).
+- LightGlue's dual softmax as computed on a GPU against kornia's (`test_learned.py`);
+- pose errors against ground truth: similarity alignment, relative errors, KITTI's colour-camera offset (`test_pose_error.py`).
 
 The PyTorch tests are skipped when PyTorch or kornia is not installed.
