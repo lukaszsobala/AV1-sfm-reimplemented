@@ -32,7 +32,7 @@ def load(p: Path) -> dict | None:
     return json.loads(p.read_text()) if p.exists() else None
 
 
-def stages(stats: dict) -> tuple[float, float, float, int]:
+def stages(stats: dict) -> tuple[float | None, float, float, int]:
     """(pre-processing s, feature matching s, CPU % of one core, cores) as in the paper's
     Table II: pre-processing = video encoding (MV) or SIFT extraction; feature
     matching = everything else before mapping. CPU % covers both stages."""

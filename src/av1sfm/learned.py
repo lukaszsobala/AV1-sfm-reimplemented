@@ -46,19 +46,24 @@ from __future__ import annotations
 import functools
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING, cast
 
 import cv2
 import numpy as np
 
 from .devices import import_torch
 
+if TYPE_CHECKING:  # PyTorch and kornia are optional
+    import torch
+    from kornia.feature.lightglue import MatchAssignment, TransformerLayer
+
 MAX_KEYPOINTS = 5000
 
 
 @dataclass
 class Features:
-    keypoints: object  # (n, 2) float tensor on the device, DISK convention (pixel indices)
-    descriptors: object  # (n, 128) float tensor on the device
+    keypoints: torch.Tensor  # (n, 2) float on the device, DISK convention (pixel indices)
+    descriptors: torch.Tensor  # (n, 128) float on the device
     size: tuple[int, int]  # (width, height)
 
     def colmap_keypoints(self) -> np.ndarray:
@@ -102,7 +107,7 @@ class DiskLightGlue:
         self.prune_min_keypoints = -1 if not gpu else 1536 if self.half_attention else 1024
         self.disk = DISK.from_pretrained("depth", device=device).eval()
         self.lightglue = LightGlue("disk").to(device).eval()
-        for layer in self.lightglue.transformers:
+        for layer in cast("list[TransformerLayer]", self.lightglue.transformers):
             layer.self_attn.inner_attn.forward = self.attention
             layer.cross_attn.forward = functools.partial(
                 cross_block_forward, layer.cross_attn, attention=self.attention
@@ -157,6 +162,7 @@ class DiskLightGlue:
             m, n = d0.shape[1], d1.shape[1]
             ind0, ind1 = np.arange(m), np.arange(n)  # kept points (pruning)
             thresholds = lg.confidence_thresholds.cpu()
+            i = 0  # the last layer run (LightGlue has at least one)
             for i in range(lg.conf.n_layers):
                 d0, d1 = lg.transformers[i](d0, d1, e0, e1)
                 if i == lg.conf.n_layers - 1:
@@ -177,7 +183,7 @@ class DiskLightGlue:
                         return none
             # kornia's MatchAssignment.forward, split: the similarity matrix on
             # the device, the dual softmax on the device or the CPU.
-            head = lg.log_assignment[i]
+            head = cast("MatchAssignment", lg.log_assignment[i])
             md0, md1 = head.final_proj(d0), head.final_proj(d1)
             scale = md0.shape[-1] ** 0.25
             sim = torch.einsum("bmd,bnd->bmn", md0 / scale, md1 / scale)
@@ -196,7 +202,8 @@ class DiskLightGlue:
     def _keep(self, i: int, desc, token, thresholds) -> np.ndarray:
         """kornia's get_pruning_mask, evaluated on the CPU: indices of the kept points."""
         lg = self.lightglue
-        keep = lg.log_assignment[i].get_matchability(desc).cpu() > (1 - lg.conf.width_confidence)
+        head = cast("MatchAssignment", lg.log_assignment[i])
+        keep = head.get_matchability(desc).cpu() > (1 - lg.conf.width_confidence)
         if token is not None:  # low-confidence points are never pruned
             keep |= token.cpu() <= thresholds[i]
         return np.flatnonzero(keep[0].numpy())

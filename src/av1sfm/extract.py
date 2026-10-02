@@ -54,13 +54,13 @@ class FrameMotion:
     ref: np.ndarray  # (H/4, W/4, 2) int16 reference slots
     block_map: np.ndarray  # (H/4, W/4) uint8 AOM BLOCK_* enum
     ref_frame_index: tuple[int, ...]  # display index per slot 1..7, -1 if unknown
-    decode_index: int | None = None  # position in decode order (default: `index`)
-    ref_decode_index: tuple[int, ...] | None = None  # decode index per slot (default: display)
+    decode_index: int = -1  # position in decode order (default: `index`)
+    ref_decode_index: tuple[int, ...] = ()  # decode index per slot (default: display)
 
     def __post_init__(self) -> None:
-        if self.decode_index is None:
+        if self.decode_index < 0:
             self.decode_index = self.index
-        if self.ref_decode_index is None:
+        if not self.ref_decode_index:
             self.ref_decode_index = self.ref_frame_index
 
     @property

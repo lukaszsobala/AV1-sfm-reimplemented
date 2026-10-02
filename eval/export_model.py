@@ -23,7 +23,7 @@ from av1sfm.export import NEXT_STEPS, export_dataset, export_ply, pick_model
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0] if __doc__ else None)
     ap.add_argument("rec", type=Path, help="model folder or mapper output folder")
     ap.add_argument("images", type=Path, help="folder with the images the model was built from")
     ap.add_argument("out", type=Path)

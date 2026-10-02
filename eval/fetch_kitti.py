@@ -37,7 +37,7 @@ def extract(url: str, members: list[str], out: Path) -> None:
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0] if __doc__ else None)
     ap.add_argument("--sequence", default="00")
     ap.add_argument("--frames", type=int, default=230)
     ap.add_argument("--camera", default="image_2", choices=sorted(ARCHIVES))

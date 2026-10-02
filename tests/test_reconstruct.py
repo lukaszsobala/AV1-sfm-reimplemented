@@ -42,7 +42,7 @@ def frames(tmp_path_factory):
 
     def texture(n):
         t = cv2.GaussianBlur(rng.random((n, n)).astype(np.float32), (0, 0), 2.0)
-        return cv2.normalize(t, None, 0, 255, cv2.NORM_MINMAX).astype(np.float32)
+        return cv2.normalize(t, t, 0, 255, cv2.NORM_MINMAX).astype(np.float32)
 
     near, far = texture(1024), texture(2048)
     u, v = np.meshgrid(np.arange(W) + 0.5, np.arange(H) + 0.5)

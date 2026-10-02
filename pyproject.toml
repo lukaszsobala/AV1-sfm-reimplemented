@@ -35,3 +35,11 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 100
 extend-exclude = ["src/av1sfm/_vendor"]
+
+[tool.pyright]
+include = ["src", "eval", "tests"]
+exclude = ["src/av1sfm/_vendor", "**/__pycache__"]
+extraPaths = ["eval"]  # tests import the evaluation modules (pose_error)
+venvPath = "."
+venv = ".venv"
+pythonVersion = "3.14"

@@ -163,7 +163,7 @@ def generate_pairs(
         gen = pycolmap.ExhaustivePairGenerator(pycolmap.ExhaustivePairingOptions(), db)
     else:
         raise ValueError(matching)
-    return [tuple(p) for p in gen.all_pairs()]
+    return [(a, b) for a, b in gen.all_pairs()]
 
 
 def match_database(

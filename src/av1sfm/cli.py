@@ -19,6 +19,7 @@ from .encode import (
     find_ffmpeg,
     list_images,
     probe_encoder,
+    read_image,
 )
 from .geometry import RansacSettings
 from .pipeline import MVMatchConfig, matches_per_image, run_mv_matching, score_database
@@ -279,6 +280,7 @@ def main(argv: list[str] | None = None) -> None:
             a.out.write_text(
                 json.dumps({"summary": summary, "pairs": [s.asdict() for s in scores]}, indent=1)
             )
+        if ckpt:
             ckpt.unlink(missing_ok=True)
         print(json.dumps(summary, indent=2))
 
@@ -306,7 +308,7 @@ def main(argv: list[str] | None = None) -> None:
                 continue
             for k in [fm.index, *fm.ref_frame_index]:
                 if k >= 0 and k not in imgs:
-                    imgs[k] = cv2.imread(str(paths[k]), cv2.IMREAD_GRAYSCALE).astype(np.float32)
+                    imgs[k] = read_image(paths[k], cv2.IMREAD_GRAYSCALE).astype(np.float32)
             s = score_frame(fm, imgs)
             if s:
                 print(

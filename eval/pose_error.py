@@ -122,7 +122,7 @@ def evaluate(model: str | Path, seq_dir: str | Path) -> dict:
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0] if __doc__ else None)
     ap.add_argument("rec", type=Path, help="model folder or mapper output folder")
     ap.add_argument("sequence", type=Path, help="KITTI sequence folder with NN.txt and calib.txt")
     ap.add_argument("--stats", type=Path, default=None)
