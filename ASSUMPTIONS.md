@@ -2,7 +2,9 @@
 
 This repository reimplements Zouein, Javidnia, Pitié, Kokaram, *Leveraging AV1
 motion vectors for Fast and Dense Feature Matching* (arXiv 2510.17434v2,
-ICIR 2025; "the paper"). The authors did not release code. The implementation
+ICIR 2025; "the paper"). The authors' repository
+(github.com/sigmedia/AV1-3D-Reconstruction) was not accessible while this
+implementation was written, so none of their code was used. The implementation
 was first written from a summary of the method section, then checked against
 the paper and against the group's follow-up paper, Zouein, Vibhoothi, Pitié,
 Kokaram, *Efficient dense matching for enhanced Gaussian splatting using AV1
@@ -115,4 +117,4 @@ otherwise. They are produced by `eval/mv_stats.py`.
 | D1 | KITTI 00 | confirmed | "the first 230 frames of the Sequence 0 from KITTI Odometry" (the follow-up uses 231). `image_2`, downloaded member-by-member from the official archive (`eval/fetch_kitti.py`). |
 | D2 | Gerrard Hall, Person Hall | confirmed / open | Paper §III-B: "we use a subset of each dataset. Our technique requires images to have the same dimensions and to be temporally adjacent. These two image sets were converted into videos"; ε = 1 (§III-E). Source: COLMAP 3.11.1 release assets (`gerrard-hall.zip`; `person-hall.zip` + `person-hall.z01`, a split archive). The subset is not specified; we take the longest run of consecutive images (file-name order = capture order) with the most common size and orientation: Gerrard Hall all 100 images (5616×3744); Person Hall IMG_1015–IMG_1229, 215 of 330 (the rest includes two blocks of 28 and 20 portrait shots). Images are resized to 1920×1280 (resolution not stated; comparable to the paper's 1080p clips; 21 MP frames are impractical to encode) and re-saved as JPEG q95, identical for all methods. The shared SIMPLE_RADIAL camera (f, cx, cy, k1) is scaled from each dataset's reference reconstruction (OPENCV model, f ≈ 3838 px at full size → ≈ 1312 px). `eval/prepare_colmap_dataset.py`, `eval/run_colmap_datasets.sh`. The libaom usage matters here (E2b). |
 | D3 | Dublin Seq. 1, Paris Seq. 1 and 2 | not available | Custom iPhone recordings, not public. |
-| D4 | AV1-3D-Reconstruction | unavailable | github.com/sigmedia/AV1-3D-Reconstruction was still not reachable, so no comparison with the authors' code was possible. |
+| D4 | AV1-3D-Reconstruction | unavailable | github.com/sigmedia/AV1-3D-Reconstruction was not accessible while this implementation was written, so none of the authors' code was used and no comparison with it was possible. |
