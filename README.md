@@ -5,10 +5,12 @@ information that a video encoder computes anyway, instead of searching every
 image for features. It is an open implementation of the method in
 
 > J. Zouein, H. Javidnia, F. Pitié, A. Kokaram, *Leveraging AV1 motion vectors
-> for Fast and Dense Feature Matching*, arXiv:2510.17434 (2025),
+> for Fast and Dense Feature Matching*, arXiv:2510.17434 (2025).
 
-whose authors did not release code. Its output plugs into
-[COLMAP](https://colmap.github.io/), the standard open-source
+It was written from the paper and the authors' follow-up paper. The authors'
+own repository, sigmedia/AV1-3D-Reconstruction, was not accessible while this
+implementation was written, so none of their code was used. av1sfm's output
+plugs into [COLMAP](https://colmap.github.io/), the standard open-source
 structure-from-motion software.
 
 ## The idea

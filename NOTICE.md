@@ -46,6 +46,7 @@ dataset's reference model.
 ## The paper
 
 av1sfm is an independent implementation of Zouein et al. (arXiv:2510.17434),
-written from the paper and its follow-up. No code from the authors'
-AV1-3D-Reconstruction repository was used. ASSUMPTIONS.md quotes short
+written from the paper and its follow-up. The authors' repository,
+sigmedia/AV1-3D-Reconstruction, was not accessible while av1sfm was written,
+so none of its code was used. ASSUMPTIONS.md quotes short
 passages of both papers, with section references.
