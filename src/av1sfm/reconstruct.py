@@ -61,6 +61,8 @@ class ReconstructConfig:
     init_max_forward_motion: float = 0.95
     init_min_tri_angle: float = 16.0
     prune: bool = True
+    local_refinements: int = 1
+    global_ratio: float = 1.1
     global_tracks_per_view: int | None = None
     export_dataset: bool = False
     frame_format: Literal["png", "jpg"] = "png"
@@ -124,6 +126,8 @@ def reconstruct(input_path: str | Path, out_dir: str | Path, cfg: ReconstructCon
             init_max_forward_motion=cfg.init_max_forward_motion,
             init_min_tri_angle=cfg.init_min_tri_angle,
             prune=cfg.prune,
+            local_refinements=cfg.local_refinements,
+            global_ratio=cfg.global_ratio,
             global_tracks_per_view=cfg.global_tracks_per_view,
         )
     stats["num_images"] = len(list_images(image_dir))

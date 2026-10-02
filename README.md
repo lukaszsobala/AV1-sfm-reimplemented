@@ -51,6 +51,12 @@ a textured mesh or a Gaussian splat.
 
 ## What is in the repository
 
+- **One command, `av1sfm reconstruct`**: an image folder or a video in, a
+  COLMAP reconstruction and a PLY point cloud out. An AV1 video's motion
+  vectors are used as they are (the stream is copied, not re-encoded), also
+  for ordinary random-access AV1 videos with hidden and future reference
+  frames; other videos are encoded first. Exact SIFT matching can replace
+  the motion vectors (`--matcher sift`).
 - **The matcher** (`av1sfm match`): an image folder in, a COLMAP database out.
   It works with five AV1 encoders: libaom and SVT-AV1 in software; Intel Quick
   Sync (QSV) and VA-API on Intel GPUs; and Vulkan Video.
@@ -128,9 +134,12 @@ ninja, nasm) and FFmpeg with an AV1 encoder.
 ```bash
 bash setup.sh                                  # builds the instrumented decoder, installs the Python package
 uv run av1sfm encoders                         # which AV1 encoders work on this machine
-uv run av1sfm match images/ out/database.db --ivf out/clip.ivf --encode
-uv run python eval/run_mapper.py out/database.db images/ out/sparse
+uv run av1sfm reconstruct video.mp4 out/       # or a folder of frames; --encoder vaapi on Intel GPUs
+uv run av1sfm reconstruct images/ out/ --matcher sift   # exact SIFT matching instead (needs PyTorch)
 ```
+
+The step-by-step commands (`av1sfm match`, `eval/run_mapper.py`, ...) are
+in the usage guide.
 
 [docs/USAGE.md](docs/USAGE.md) covers installation (including Intel GPUs),
 every command and option, the encoders, the GPU baselines and exporting a

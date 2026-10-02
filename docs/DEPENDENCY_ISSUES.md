@@ -18,6 +18,8 @@ results in ways that are easy to miss, follow them.
 | 9 | FFmpeg `av1_vaapi` | `-q:v` is not the AV1 qindex | pitfall | `-global_quality` |
 | 10 | Mesa ANV (Lunar Lake) | Vulkan Video AV1 encode not exposed | driver limitation | VA-API or QSV |
 | 11 | libaom, SVT-AV1 | Low-delay settings still use references other than the previous frame | behaviour | Each MV follows its real reference |
+| 12 | SVT-AV1 2.x (Ubuntu 26.04) | Rejects odd frame sizes in 4:2:0 | limitation | One repeated column / row of padding |
+| 13 | pycolmap 4.2.1 wheel | "BLAS : Bad memory unallocation!" at interpreter exit | nuisance | None needed; results and exit status unaffected |
 
 ## PyTorch on Intel GPUs (XPU)
 
@@ -215,7 +217,11 @@ With Mesa ANV from Intel's graphics PPA on Ubuntu 26.04, FFmpeg's
 `av1_vulkan` stops at "Device does not support the VK_KHR_video_encode_queue
 extension". The same Lunar Lake GPU encodes AV1 through VA-API and QSV, so
 this is a driver limitation. `av1sfm encoders` reports it, and `--encoder
-auto` falls through to QSV or VA-API (ASSUMPTIONS.md E5b).
+auto` falls through to QSV or VA-API (ASSUMPTIONS.md E5b). Mesa 26.0.8's
+`libvulkan_intel.so` contains `VK_KHR_video_encode_av1`, but does not expose
+it on Lunar Lake, not even with `ANV_DEBUG=video-encode` (which does expose
+the decode extensions). A newer Mesa may enable it; check with
+`vulkaninfo | grep encode_av1`.
 
 ### 11. Low-delay encodes still reference older frames
 
@@ -228,3 +234,23 @@ did not change that. VA-API sends 7.4 % to the frame before the previous one.
 av1sfm attaches every motion vector to its actual reference frame, through the
 decoder's reference order hints; `--prev-only` keeps only those to the
 previous frame (ASSUMPTIONS.md E3, E5a).
+
+### 12. SVT-AV1 2.x rejects odd frame sizes
+
+Ubuntu 26.04's SVT-AV1 (2.3) stops with "Source Width must be even for
+YUV_420 colorspace" on KITTI (1241 × 376) and on the 321 × 181 test clip;
+SVT-AV1 4.2, built by `scripts/build_ffmpeg.sh`, accepts them. For `svtav1`
+an odd width or height is padded by one repeated column or row, and the
+decoded frame is clamped back to the image size (ASSUMPTIONS.md E6).
+
+## Runtime
+
+### 13. OpenBLAS message at exit
+
+A process that runs pycolmap's SIFT extraction, COLMAP's own SIFT matcher
+and the mapper sometimes prints `BLAS : Bad memory unallocation!` once to
+three times as it exits, after all work is done (seen in
+`tests/test_reconstruct.py::test_sift_matcher[colmap]`, 2 of 3 runs). The
+exit status is 0 and results are complete. The pycolmap wheel links its own
+OpenBLAS statically next to NumPy's, which is the likely cause; the exact
+matcher path did not show it.

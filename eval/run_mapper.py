@@ -6,10 +6,12 @@ largest model (pycolmap does not expose the BA share of incremental mapping).
 With `--kitti-sequence`, camera poses are also compared with the KITTI ground
 truth (eval/pose_error.py).
 
-The default is COLMAP's incremental mapper whose global bundle adjustments
-skip redundant 3D points: on KITTI 14-36 % faster on MV databases with the same
-accuracy (docs/RESULTS.md). The results published before this default used
-COLMAP's unmodified settings, `--no-prune-redundant-points`.
+The default is COLMAP's incremental mapper with two changes that save time
+but not accuracy (av1sfm.mapping, docs/RESULTS.md): global bundle adjustments
+skip redundant 3D points, and each registered image gets one local bundle
+adjustment instead of up to two. The results published before these defaults
+used COLMAP's unmodified settings: `--no-prune-redundant-points
+--ba-local-refinements 2`.
 
   --mapper global           COLMAP's global mapper (GLOMAP): rotation averaging,
                             global positioning, then bundle adjustment. Faster,
@@ -54,6 +56,18 @@ def main() -> None:
         "COLMAP's unmodified setting)",
     )
     ap.add_argument(
+        "--ba-local-refinements",
+        type=int,
+        default=1,
+        help="incremental: local bundle adjustments per registered image (COLMAP: 2)",
+    )
+    ap.add_argument(
+        "--ba-global-ratio",
+        type=float,
+        default=1.1,
+        help="incremental: global BA when the model grew by this factor (COLMAP: 1.1)",
+    )
+    ap.add_argument(
         "--global-tracks-per-view",
         type=int,
         default=None,
@@ -81,6 +95,8 @@ def main() -> None:
             init_max_forward_motion=a.init_max_forward_motion,
             init_min_tri_angle=a.init_min_tri_angle,
             prune=a.prune_redundant_points,
+            local_refinements=a.ba_local_refinements,
+            global_ratio=a.ba_global_ratio,
             global_tracks_per_view=a.global_tracks_per_view,
         )
     stats: dict = {
@@ -91,6 +107,8 @@ def main() -> None:
         "init_min_tri_angle": a.init_min_tri_angle,
         "fix_intrinsics": a.fix_intrinsics,
         "prune_redundant_points": a.prune_redundant_points if a.mapper == "incremental" else None,
+        "ba_local_refinements": a.ba_local_refinements if a.mapper == "incremental" else None,
+        "ba_global_ratio": a.ba_global_ratio if a.mapper == "incremental" else None,
         "global_tracks_per_view": a.global_tracks_per_view,
     }
     if recs:

@@ -3,14 +3,21 @@
 The same mapper settings are used for every matching method:
 
   incremental  COLMAP's incremental mapper with its default settings, except
-               that global bundle adjustments skip redundant 3D points
-               (`ba_global_ignore_redundant_points3D`). Dense MV tracks add
-               more than 10 % new points with almost every image, which
-               triggers a global bundle adjustment after nearly every
-               registration; skipping redundant points makes the mapper
-               14-36 % faster on KITTI with the same points, reprojection
-               error and pose accuracy (docs/RESULTS.md). `prune=False`
-               restores COLMAP's default.
+               for two that cost time but not accuracy (docs/RESULTS.md,
+               measured on KITTI with exact SIFT and MV databases):
+                 * global bundle adjustments skip redundant 3D points
+                   (`ba_global_ignore_redundant_points3D`; `prune=False` is
+                   COLMAP's default). Dense MV tracks add more than 10 % new
+                   points with almost every image, which triggers a global
+                   bundle adjustment after nearly every registration;
+                   14-36 % faster.
+                 * one local bundle adjustment per registered image instead
+                   of up to two (`ba_local_max_refinements`;
+                   `local_refinements=2` is COLMAP's default); another 12-27 % faster.
+               `global_ratio` > 1.1 (COLMAP's `ba_global_frames_ratio` and
+               `ba_global_points_ratio`) runs global bundle adjustments less
+               often: 1.2 is another 9-18 % faster, with pose errors 1-2 %
+               higher on two of three KITTI tests.
   global       COLMAP's global mapper (GLOMAP): faster, but on KITTI it gives
                3-12 % fewer points and slightly worse poses.
 """
@@ -30,6 +37,8 @@ def incremental_options(
     init_min_tri_angle: float = 16.0,
     fix_intrinsics: bool = False,
     prune: bool = True,
+    local_refinements: int = 1,
+    global_ratio: float = 1.1,
 ) -> pycolmap.IncrementalPipelineOptions:
     """COLMAP's incremental mapper with one shared model.
 
@@ -50,6 +59,8 @@ def incremental_options(
     opts.mapper.init_max_forward_motion = init_max_forward_motion
     opts.mapper.init_min_tri_angle = init_min_tri_angle
     opts.mapper.ba_global_ignore_redundant_points3D = prune
+    opts.ba_local_max_refinements = local_refinements
+    opts.ba_global_frames_ratio = opts.ba_global_points_ratio = global_ratio
     if fix_intrinsics:
         opts.ba_refine_focal_length = False
         opts.ba_refine_principal_point = False
@@ -86,6 +97,8 @@ def run_mapper(
     init_max_forward_motion: float = 0.95,
     init_min_tri_angle: float = 16.0,
     prune: bool = True,
+    local_refinements: int = 1,
+    global_ratio: float = 1.1,
     global_tracks_per_view: int | None = None,
 ) -> dict[int, pycolmap.Reconstruction]:
     """Reconstruct; models are written to `out_dir/<index>`."""
@@ -102,6 +115,8 @@ def run_mapper(
         init_min_tri_angle=init_min_tri_angle,
         fix_intrinsics=fix_intrinsics,
         prune=prune,
+        local_refinements=local_refinements,
+        global_ratio=global_ratio,
     )
     return pycolmap.incremental_mapping(database, image_dir, out_dir, opts)
 

@@ -191,6 +191,18 @@ def main(argv: list[str] | None = None) -> None:
         default=True,
         help="global BAs skip redundant 3D points (incremental mapper)",
     )
+    g.add_argument(
+        "--ba-local-refinements",
+        type=int,
+        default=1,
+        help="local bundle adjustments per registered image (COLMAP: 2)",
+    )
+    g.add_argument(
+        "--ba-global-ratio",
+        type=float,
+        default=1.1,
+        help="global bundle adjustment when the model grew by this factor (1.2: faster)",
+    )
     g.add_argument("--global-tracks-per-view", type=int, default=None)
     _add_track_args(p.add_argument_group("MV tracks"))
     _add_camera_args(p)
@@ -242,6 +254,8 @@ def main(argv: list[str] | None = None) -> None:
             init_max_forward_motion=a.init_max_forward_motion,
             init_min_tri_angle=a.init_min_tri_angle,
             prune=a.prune_redundant_points,
+            local_refinements=a.ba_local_refinements,
+            global_ratio=a.ba_global_ratio,
             global_tracks_per_view=a.global_tracks_per_view,
             export_dataset=a.export_dataset,
             frame_format=a.frame_format,
