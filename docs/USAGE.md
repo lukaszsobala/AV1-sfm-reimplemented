@@ -60,13 +60,15 @@ build) provides COLMAP; no separate COLMAP binary is needed.
 
 ### Intel Lunar Lake / Arc on Ubuntu 26.04
 
-Tested on a Lunar Lake laptop in a virtualenv without `uv run`. Encoding
-was tested with GPU drivers and FFmpeg from Ubuntu 26.04's own archive
-(universe and multiverse). **The GPU matchers on an Intel GPU need the compute
+Tested on a Lunar Lake laptop in a virtualenv without `uv run`. For
+encoding, the GPU drivers and FFmpeg from Ubuntu 26.04's own archive
+(universe and multiverse) are enough. **The GPU matchers on an Intel GPU need the compute
 runtime (`intel-opencl-icd`, `libze-intel-gpu1`) 26.31.39395 or newer**, which
 the archive does not have (it has 26.05.37020, which computes wrong results;
 [DEPENDENCY_ISSUES.md](DEPENDENCY_ISSUES.md) 1–2). Intel's graphics PPA
-provides it:
+provides it. With the PPA's media driver too, QSV and VA-API give
+byte-identical streams on KITTI (frames 0–116), so encoding results do not
+depend on which of the two sources is used:
 
 ```bash
 sudo apt-get install -y build-essential meson ninja-build nasm pkg-config ffmpeg vainfo \
@@ -84,8 +86,9 @@ apt-cache policy libze-intel-gpu1   # installed version: 26.31.39395 or newer
 
 The packages provide:
 
-- VA-API AV1 encoding: `intel-media-va-driver-non-free` 26.1.2.
-- QSV: `libvpl2` and the VPL GPU runtime `libmfx-gen1.2`.
+- VA-API AV1 encoding: `intel-media-va-driver-non-free` 26.1.2 (archive) or
+  26.3.2 (PPA).
+- QSV: `libvpl2` and the VPL GPU runtime `libmfx-gen1.2` (26.3.2 in the PPA).
 - The GPU compute runtime used by PyTorch: `intel-opencl-icd` and `libze-intel-gpu1`,
   at least 26.31.39395 (tested: 26.31.39395.14 from the PPA; PyTorch reports
   it as Level Zero driver 1.17.39395). With an older one, `DiskLightGlue`
