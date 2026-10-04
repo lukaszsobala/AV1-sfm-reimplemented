@@ -125,7 +125,7 @@ deliberately differs.
 | Intel QSV and VA-API (GPU encoders) | Tested on Intel Lunar Lake. |
 | Vulkan Video | Implemented; the Lunar Lake driver tested does not offer AV1 encoding, and AMD GPUs are untested. |
 | NVIDIA NVENC (the paper's second encoder) | Not supported. |
-| GPU baselines on Intel GPUs (PyTorch XPU) | Tested, with workarounds for PyTorch bugs ([docs/DEPENDENCY_ISSUES.md](docs/DEPENDENCY_ISSUES.md)). |
+| GPU baselines on Intel GPUs (PyTorch XPU) | Tested; needs GPU compute runtime 26.31.39395 or newer (older drivers compute wrong results, [docs/DEPENDENCY_ISSUES.md](docs/DEPENDENCY_ISSUES.md)). |
 | GPU baselines on NVIDIA GPUs (CUDA) | Expected to work; untested. |
 
 ## Getting started

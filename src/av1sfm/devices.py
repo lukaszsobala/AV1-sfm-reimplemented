@@ -43,6 +43,34 @@ def pick_device(name: str = "auto") -> torch.device:
     return torch.device(name)
 
 
+MIN_XPU_DRIVER_BUILD = 39395  # Intel compute runtime 26.31.39395 (Level Zero 1.17.39395)
+
+
+def check_xpu_driver(device: torch.device) -> None:
+    """Raise if an Intel GPU's compute runtime is older than 26.31.39395.
+
+    Older drivers (26.05.37020, Ubuntu 26.04's archive) return too few elements
+    from `nonzero` and boolean-mask indexing on large tensors, and wrong
+    softmax over more than 4096 elements (docs/DEPENDENCY_ISSUES.md;
+    `python eval/xpu_repro.py` tests a driver). The Level Zero driver version
+    reads "1.17.39395+14"; its third field is the compute runtime's build.
+    """
+    if device.type != "xpu":
+        return
+    torch = import_torch()
+    version = str(getattr(torch.xpu.get_device_properties(device), "driver_version", ""))
+    try:
+        build = int(version.split("+")[0].split(".")[2])
+    except IndexError, ValueError:
+        return  # unknown format: cannot tell
+    if build < MIN_XPU_DRIVER_BUILD:
+        raise RuntimeError(
+            f"Intel GPU driver {version} is too old: the GPU matchers need compute runtime "
+            f"26.31.{MIN_XPU_DRIVER_BUILD} or newer (Level Zero driver x.y.{MIN_XPU_DRIVER_BUILD}); "
+            'older ones compute wrong results. See docs/USAGE.md, "GPU matchers".'
+        )
+
+
 def device_name(device: torch.device) -> str:
     """Human-readable device description for run statistics."""
     torch = import_torch()

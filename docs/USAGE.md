@@ -60,9 +60,13 @@ build) provides COLMAP; no separate COLMAP binary is needed.
 
 ### Intel Lunar Lake / Arc on Ubuntu 26.04
 
-Tested on a Lunar Lake laptop in a virtualenv without `uv run`. The GPU
-drivers and FFmpeg came from Ubuntu 26.04's own archive (universe and
-multiverse), with no extra repository:
+Tested on a Lunar Lake laptop in a virtualenv without `uv run`. Encoding
+was tested with GPU drivers and FFmpeg from Ubuntu 26.04's own archive
+(universe and multiverse). **The GPU matchers on an Intel GPU need the compute
+runtime (`intel-opencl-icd`, `libze-intel-gpu1`) 26.31.39395 or newer**, which
+the archive does not have (it has 26.05.37020, which computes wrong results;
+[DEPENDENCY_ISSUES.md](DEPENDENCY_ISSUES.md) 1–2). Intel's graphics PPA
+provides it:
 
 ```bash
 sudo apt-get install -y build-essential meson ninja-build nasm pkg-config ffmpeg vainfo \
@@ -71,13 +75,21 @@ uv venv --python 3.14 && source .venv/bin/activate
 uv pip install -e . pytest
 AV1SFM_SKIP_SYNC=1 bash setup.sh   # patched dav1d + shim only
 av1sfm encoders                    # libaom, svtav1, qsv and vaapi should work
+
+# For the GPU matchers: compute runtime 26.31.39395 or newer
+sudo add-apt-repository ppa:kobuk-team/intel-graphics
+sudo apt-get update && sudo apt-get upgrade
+apt-cache policy libze-intel-gpu1   # installed version: 26.31.39395 or newer
 ```
 
 The packages provide:
 
 - VA-API AV1 encoding: `intel-media-va-driver-non-free` 26.1.2.
 - QSV: `libvpl2` and the VPL GPU runtime `libmfx-gen1.2`.
-- The GPU compute runtime used by PyTorch: `intel-opencl-icd` and `libze-intel-gpu1` 26.05.37020.
+- The GPU compute runtime used by PyTorch: `intel-opencl-icd` and `libze-intel-gpu1`,
+  at least 26.31.39395 (tested: 26.31.39395.14 from the PPA; PyTorch reports
+  it as Level Zero driver 1.17.39395). With an older one, `DiskLightGlue`
+  refuses to run on the GPU.
 - FFmpeg 8.0.1 and Mesa 26.0.8.
 
 The laptop also has Intel's oneAPI repository
@@ -87,9 +99,7 @@ libraries (DPC++, MKL, oneDNN, the oneVPL SDK), not GPU drivers. PyTorch's
 XPU wheels bring their own oneAPI runtime as pip packages (`intel-sycl-rt`,
 `onemkl-sycl-*`, `tcmlib`, `umf`). With the toolkit's OpenCL CPU runtime
 hidden (`OCL_ICD_VENDORS` listing only the GPU driver), PyTorch loads nothing
-from `/opt/intel` and the GPU tests pass. Intel's graphics PPA
-(`ppa:kobuk-team/intel-graphics`) is another source of the same driver
-packages; it was not used.
+from `/opt/intel` and the GPU tests pass.
 
 With a virtualenv active, prefix evaluation scripts with `RUN=` (see
 [RESULTS.md](RESULTS.md#reproducing-the-evaluation)). The optional GPU
@@ -329,13 +339,17 @@ GPU, then CUDA, then the CPU):
   ([`av1sfm/learned.py`](../src/av1sfm/learned.py)): the learned baseline of the
   paper's Table I, using kornia's ports of both networks with their defaults
   (early stopping, point pruning; float16 attention on a GPU, as kornia does
-  on CUDA). `--fp32-attention`, `--no-pruning` and `--cpu-softmax` select
-  slower variants.
+  on CUDA). Everything runs on the GPU. `--fp32-attention` and
+  `--no-pruning` select slower variants. On Intel GPUs it needs compute
+  runtime 26.31.39395 or newer
+  ([Intel Lunar Lake / Arc](#intel-lunar-lake--arc-on-ubuntu-2604)) and
+  raises an error with an older one.
 
 On a new GPU, run `python eval/check_device.py IMG0 IMG1` first: it compares
 both matchers on the GPU against the CPU on two images and times each
-LightGlue variant. `python eval/xpu_repro.py` reproduces the PyTorch bugs that
-av1sfm works around on Intel GPUs ([DEPENDENCY_ISSUES.md](DEPENDENCY_ISSUES.md)).
+LightGlue variant. `python eval/xpu_repro.py` tests an Intel GPU driver for
+the bugs of compute runtime 26.05.37020
+([DEPENDENCY_ISSUES.md](DEPENDENCY_ISSUES.md)).
 
 Both use COLMAP's own pair generation and geometric verification and write
 the same database layout as the other methods, so scoring and mapping are
@@ -343,7 +357,7 @@ unchanged. Install into the active virtualenv:
 
 ```bash
 # Intel GPU (Lunar Lake, Arc): PyTorch's XPU build. It uses the GPU compute
-# runtime (intel-opencl-icd, libze-intel-gpu1, from the Ubuntu archive) and
+# runtime (intel-opencl-icd, libze-intel-gpu1 >= 26.31.39395, see above) and
 # brings its own oneAPI runtime libraries; the oneAPI toolkit is not needed.
 uv pip install torch --index-url https://download.pytorch.org/whl/xpu
 uv pip install kornia
@@ -391,7 +405,7 @@ better model to move around in than KITTI's forward drive.
 
 ## Tests
 
-`tests/` (88 tests; `pytest`) uses synthetic data for:
+`tests/` (92 tests; `pytest`) uses synthetic data for:
 
 - the cosine filter (`test_cosine.py`): thresholds, τ, ε = 1;
 - MV-to-correspondence geometry (`test_blocks.py`): block collapse, centres, references, compound blocks;
@@ -401,7 +415,7 @@ better model to move around in than KITTI's forward drive.
 - an end-to-end check on real AV1 encodes (libaom and SVT-AV1 low delay, libaom random access) of a synthetic pan + zoom with known ground truth (`test_integration.py`);
 - `av1sfm reconstruct` on a synthetic 3D scene with known camera poses (`test_reconstruct.py`): an image folder, a copied AV1 video, a video in another codec, and both SIFT matchers;
 - the exact SIFT matcher against a line-by-line port of COLMAP's brute-force loop (`test_sift_exact.py`);
-- LightGlue's dual softmax as computed on a GPU against kornia's (`test_learned.py`);
+- the Intel GPU driver version check (`test_devices.py`);
 - pose errors against ground truth: similarity alignment, relative errors, KITTI's colour-camera offset (`test_pose_error.py`).
 
 The PyTorch tests are skipped when PyTorch or kornia is not installed.
