@@ -1,7 +1,8 @@
-"""Minimal reproductions of the PyTorch XPU problems worked around in av1sfm.
+"""Minimal reproductions of the Intel GPU driver bugs that av1sfm's minimum driver avoids.
 
-Self-contained (PyTorch only), for bug reports; docs/DEPENDENCY_ISSUES.md
-describes each problem. Every line compares the device with the CPU on the
+Self-contained (PyTorch only). Compute runtime 26.05.37020 fails the
+`nonzero` / mask and softmax lines; 26.31.39395 passes them all
+(docs/DEPENDENCY_ISSUES.md). Every line compares the device with the CPU on the
 same random inputs:
 
     python eval/xpu_repro.py            # Intel GPU (xpu)
@@ -69,13 +70,13 @@ def main(dev: str) -> None:
             f"{rel(torch.log_softmax(x, -1), torch.log_softmax(xd, -1)):.2e}",
         )
     line(
-        "logsumexp, n = 5000 (workaround)",
+        "logsumexp, n = 5000",
         f"{rel(torch.logsumexp(s, -1), torch.logsumexp(sd, -1)):.2e}",
     )
     q = torch.randn(1, 4, 5000, 64, generator=g)
     qd = q.to(dev)
     sdpa = F.scaled_dot_product_attention
-    line("scaled_dot_product_attention (workaround)", f"{rel(sdpa(q, q, q), sdpa(qd, qd, qd)):.2e}")
+    line("scaled_dot_product_attention", f"{rel(sdpa(q, q, q), sdpa(qd, qd, qd)):.2e}")
     line(
         "scaled_dot_product_attention float16",
         f"{rel(sdpa(q, q, q), sdpa(qd.half(), qd.half(), qd.half())):.2e}",

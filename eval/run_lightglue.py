@@ -38,7 +38,6 @@ def main() -> None:
         "--fp32-attention", action="store_true", help="GPU: attention in float32, not float16"
     )
     ap.add_argument("--no-pruning", action="store_true", help="disable LightGlue's point pruning")
-    ap.add_argument("--cpu-softmax", action="store_true", help="GPU: dual softmax on the CPU")
     ap.add_argument("--camera-model", default="SIMPLE_RADIAL")
     ap.add_argument("--camera-params", default="")
     ap.add_argument("--stats", type=Path, default=None)
@@ -55,7 +54,6 @@ def main() -> None:
         a.max_keypoints,
         half_attention=False if a.fp32_attention else None,
         prune=not a.no_pruning,
-        assignment_on_device=False if a.cpu_softmax else None,
     )
     if device.type != "cpu":  # not timed: first-call kernel compilation on GPUs
         f = model.extract(images[0])
@@ -93,7 +91,6 @@ def main() -> None:
             "attention": "float16" if model.half_attention else "float32",
             "pruning": model.prune,
             "pruning_min_keypoints": model.prune_min_keypoints,
-            "dual_softmax": "device" if model.assignment_on_device else "cpu",
             "camera": [a.camera_model, a.camera_params],
         },
         "timings": timer.asdict(),

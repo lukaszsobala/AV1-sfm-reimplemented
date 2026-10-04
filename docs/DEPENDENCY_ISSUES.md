@@ -7,8 +7,8 @@ results in ways that are easy to miss, follow them.
 
 | # | Component | Problem | Kind | av1sfm |
 |---|---|---|---|---|
-| 1 | PyTorch XPU 2.14.1 | `nonzero` and boolean-mask indexing on large tensors return too few elements | bug | Index lists computed on the CPU |
-| 2 | PyTorch XPU 2.14.1 | `softmax` and `log_softmax` over more than 4096 elements are wrong | bug | Fused attention kernel; `x - logsumexp(x)` |
+| 1 | Intel GPU compute runtime 26.05.37020 | `nonzero` and boolean-mask indexing on large tensors return too few elements | bug, fixed in 26.31.39395 | Requires 26.31.39395 or newer |
+| 2 | Intel GPU compute runtime 26.05.37020 | `softmax` and `log_softmax` over more than 4096 elements are wrong | bug, fixed in 26.31.39395 | Requires 26.31.39395 or newer |
 | 3 | kornia 0.8.3 | `LightGlue` raises `KeyError: 'xpu'` on any device but CPU, MPS and CUDA | bug | Own forward pass over kornia's layers |
 | 4 | kornia 0.8.3 | LightGlue's fast attention path is CUDA-only | limitation | Same kernels on every device |
 | 5 | kornia 0.8.3 | `LightGlue` prints to stdout | nuisance | Statistics written to a file |
@@ -21,7 +21,23 @@ results in ways that are easy to miss, follow them.
 | 12 | SVT-AV1 2.x (Ubuntu 26.04) | Rejects odd frame sizes in 4:2:0 | limitation | One repeated column / row of padding |
 | 13 | pycolmap 4.2.1 wheel | "BLAS : Bad memory unallocation!" at interpreter exit | nuisance | None needed; results and exit status unaffected |
 
-## PyTorch on Intel GPUs (XPU)
+## Intel GPU compute runtime (PyTorch XPU)
+
+**Bugs 1 and 2 are in the GPU driver, not in PyTorch, and are fixed in compute
+runtime 26.31.39395.** With the same PyTorch 2.14.1 XPU wheel, the same
+machine and the driver from Intel's graphics PPA (`ppa:kobuk-team/intel-graphics`,
+`intel-opencl-icd` and `libze-intel-gpu1` 26.31.39395.14; Level Zero driver
+version 1.17.39395), `eval/xpu_repro.py` finds no problem: every `nonzero` and
+`x[mask]` count equals the CPU's, and `softmax` and `log_softmax` over 4097
+and 5000 elements agree with the CPU to 3·10⁻⁷. av1sfm therefore runs
+everything on the GPU and requires that version: `DiskLightGlue` raises an
+error on an Intel GPU whose driver build is older
+(`av1sfm.devices.check_xpu_driver`). Earlier versions of av1sfm worked around
+both bugs as described below; results in `results/lunar-lake/` from before
+2026-10-04 were computed with those workarounds on the old driver, and the
+GPU gave the same matches as the CPU.
+
+The bugs as found on the old driver:
 
 **Environment:** PyTorch 2.14.1 XPU wheel (`download.pytorch.org/whl/xpu`),
 Python 3.14, Intel Core Ultra (Lunar Lake) with integrated Arc graphics
@@ -33,11 +49,8 @@ platform "Intel(R) oneAPI Unified Runtime over Level-Zero V2", driver version
 `eval/check_device.py` found these by running every LightGlue module and the
 operations inside them on the GPU and on the CPU with identical inputs.
 `eval/xpu_repro.py` reproduces both with PyTorch alone and random inputs,
-and prints the driver version, for bug reports. They have not been reported
-upstream yet; the place is
-[intel/torch-xpu-ops](https://github.com/intel/torch-xpu-ops/issues). Basic
-operations failing this plainly suggests a problem specific to this GPU or
-driver version rather than to PyTorch in general, but that is not established.
+and prints the driver version. They were not reported upstream; the newer
+driver fixes them.
 
 Operations that were **correct** on the same machine (maximum relative
 difference to the CPU): `scaled_dot_product_attention` (3·10⁻⁶ in float32,
@@ -81,10 +94,10 @@ Assertion `index >= -sizes_[i] && index < sizes_[i] && "index out of bounds"` fa
 UR_RESULT_ERROR_DEVICE_LOST
 ```
 
-**Workaround** (`av1sfm/learned.py`): no boolean indexing on the GPU. DISK's
-keypoints are selected on the CPU from the score map. LightGlue's point
-pruning and final match selection compute index lists on the CPU, and the GPU
-gathers with `index_select`.
+**Former workaround** (until 2026-10-04): no boolean indexing on the GPU.
+DISK's keypoints were selected on the CPU from the score map; LightGlue's point
+pruning and final match selection computed index lists on the CPU, and the
+GPU gathered with `index_select`.
 
 ### 2. `softmax` and `log_softmax` over more than 4096 elements are wrong
 
@@ -113,17 +126,20 @@ also broke LightGlue's final assignment (its dual softmax). Our first
 diagnosis, inside LightGlue, blamed the matrix products that follow the
 softmax; the minimal reproduction separated the two.
 
-**Workarounds:** attention runs through `scaled_dot_product_attention`
-(`cross_block_forward`), which is mathematically identical, and on the CPU
-gives the same matches as kornia. The dual softmax is written as
-`x - logsumexp(x)` (`double_softmax_maxima`), with reductions over the last
-dimension of contiguous tensors; `tests/test_learned.py` checks it against
-kornia's version. Exact SIFT matching uses neither operation, and every
-selected product is re-checked in integer arithmetic on each run.
+**Former workarounds** (until 2026-10-04): the dual softmax was written as
+`x - logsumexp(x)`, with reductions over the last dimension of contiguous
+tensors. Attention runs through `scaled_dot_product_attention`
+(`cross_block_forward`), which is mathematically identical and still used,
+for problem 4. Exact SIFT matching uses neither operation, and every selected
+product is re-checked in integer arithmetic on each run.
 
 With these workarounds and the one for bug 1, DISK + LightGlue on the Intel
-GPU gives the same matches as on the CPU (3,969 of 3,969 on a KITTI pair in
-float32; 2,666 of 2,666 with float16 attention and pruning).
+GPU gave the same matches as on the CPU (3,969 of 3,969 on a KITTI pair in
+float32; 2,666 of 2,666 with float16 attention and pruning). On driver
+26.31.39395 without workarounds, `eval/check_device.py` on KITTI frames 0 and
+1 gives the same 5,000 DISK keypoints on both devices and identical LightGlue
+matches in all four settings (3,969 in float32 or float16 without pruning,
+3,967 with pruning).
 
 ## kornia 0.8.3
 
@@ -151,7 +167,8 @@ kornia (like the original LightGlue) runs attention in float16 through
 self-attention runs in float32, and cross-attention builds the full similarity
 matrix with `einsum` and applies two softmaxes. On the CPU, kornia's forward
 pass took 4.6–12 s per KITTI pair against 1.1–2.2 s for the same computation
-through `scaled_dot_product_attention`. On Intel GPUs it also triggers bug 2.
+through `scaled_dot_product_attention`. On Intel GPUs with the old driver it also
+triggered bug 2.
 
 **What av1sfm does:** the same attention kernels on every device, float16 on
 any GPU. On the Lunar Lake GPU, float16 attention with pruning took 166 ms per

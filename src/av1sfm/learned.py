@@ -16,27 +16,27 @@ GPU, attention runs in float16 as kornia (and the original LightGlue) does on
 CUDA with its default `flash=True`; on the CPU in float32. On the CPU, `match`
 gives the same matches as kornia's own forward pass.
 
-Changes for PyTorch XPU 2.14 (Intel GPUs), where `nonzero` and boolean-mask
-indexing on large tensors return too few elements, and softmax and
-log_softmax over more than 4096 elements are wrong (docs/DEPENDENCY_ISSUES.md,
-eval/xpu_repro.py): point selection (DISK's keypoints, LightGlue's pruning and
-final matches) uses index lists computed on the CPU; cross-attention goes
-through PyTorch's fused attention kernel (`cross_block_forward`), which is
-correct; and on a GPU, the dual softmax is written with logsumexp
-(`double_softmax_maxima`).
+Everything runs on the device: DISK's keypoint selection, LightGlue's layers,
+pruning, dual softmax and match selection (kornia's functions); only the
+final matches are copied to the CPU. On Intel GPUs this needs GPU driver
+(compute runtime) 26.31.39395 or newer (`devices.check_xpu_driver`): older
+drivers return wrong results from `nonzero`, boolean-mask indexing and
+softmax over more than 4096 elements (docs/DEPENDENCY_ISSUES.md,
+eval/xpu_repro.py). Self- and cross-attention go through PyTorch's fused
+attention kernel on every device (`cross_block_forward`); kornia uses it on
+CUDA only.
 
 Keypoints are written to the COLMAP database with +0.5 px (DISK returns pixel
 indices; COLMAP puts the centre of the top-left pixel at (0.5, 0.5)). Raw
 matches then go through COLMAP's geometric verification like every other method.
 
 Licence of adapted code: `DiskLightGlue.match`, `DiskLightGlue.attention`,
-`DiskLightGlue._keep`, `double_softmax_maxima`, `mutual_matches` and
-`cross_block_forward` are adapted from kornia's kornia/feature/lightglue.py
-(kornia 0.8.3, Copyright 2018 Kornia Team), itself a port of LightGlue
-(github.com/cvg/LightGlue, Copyright 2023 ETH Zurich), both under the Apache
-License 2.0 (LICENSES/Apache-2.0.txt). Modified in 2026 for AV1-sfm-reimplemented:
-point selection on the CPU, attention through scaled_dot_product_attention,
-the dual softmax written with logsumexp, and the forward pass split into
+`DiskLightGlue._prune` and `cross_block_forward` are adapted from kornia's
+kornia/feature/lightglue.py (kornia 0.8.3, Copyright 2018 Kornia Team),
+itself a port of LightGlue (github.com/cvg/LightGlue, Copyright 2023 ETH
+Zurich), both under the Apache License 2.0 (LICENSES/Apache-2.0.txt).
+Modified in 2026 for AV1-sfm-reimplemented: attention through
+scaled_dot_product_attention on every device, and the forward pass split into
 these functions. The rest of this file is original and, like the
 modifications, licensed under the AGPL (see LICENSE).
 """
@@ -51,7 +51,7 @@ from typing import TYPE_CHECKING, cast
 import cv2
 import numpy as np
 
-from .devices import import_torch
+from .devices import check_xpu_driver, import_torch
 
 if TYPE_CHECKING:  # PyTorch and kornia are optional
     import torch
@@ -74,8 +74,7 @@ class DiskLightGlue:
     """DISK features and LightGlue matching on `device`.
 
     `half_attention` (default: on a GPU) computes attention in float16;
-    `prune` enables LightGlue's point pruning; `assignment_on_device` (default:
-    on a GPU) computes the dual softmax on the device instead of the CPU.
+    `prune` enables LightGlue's point pruning.
     """
 
     def __init__(
@@ -85,22 +84,21 @@ class DiskLightGlue:
         *,
         half_attention: bool | None = None,
         prune: bool = True,
-        assignment_on_device: bool | None = None,
     ):
         torch = import_torch()
+        check_xpu_driver(device)
         try:
             from kornia.feature import DISK, LightGlue
             from kornia.feature.disk.detector import heatmap_to_keypoints
-            from kornia.feature.lightglue import normalize_keypoints, sigmoid_log_double_softmax
+            from kornia.feature.lightglue import filter_matches, normalize_keypoints
         except ImportError as e:  # pragma: no cover - depends on the environment
             raise ImportError("DISK + LightGlue needs kornia: uv pip install kornia") from e
         self.torch, self.device, self.max_keypoints = torch, device, max_keypoints
         self.heatmap_to_keypoints = heatmap_to_keypoints
         self.normalize_keypoints = normalize_keypoints
-        self.sigmoid_log_double_softmax = sigmoid_log_double_softmax
+        self.filter_matches = filter_matches
         gpu = device.type != "cpu"
         self.half_attention = gpu if half_attention is None else half_attention
-        self.assignment_on_device = gpu if assignment_on_device is None else assignment_on_device
         self.prune = prune
         # kornia's pruning_min_kpts: -1 (always) on the CPU, 1536 with flash
         # (float16) attention on CUDA, else 1024.
@@ -134,16 +132,14 @@ class DiskLightGlue:
         t = torch.nn.functional.pad(t, (0, -w % 16, 0, -h % 16))  # DISK needs multiples of 16
         with torch.inference_mode():
             heatmap, dense = self.disk.heatmap_and_dense_descriptors(t)
-            # Keypoint selection (NMS, top-n) on the CPU: on PyTorch XPU 2.14 the
-            # boolean indexing in kornia's selection gives inconsistent sizes.
             kp = self.heatmap_to_keypoints(
-                heatmap[:, :, :h, :w].float().cpu(), n=self.max_keypoints, window_size=5
+                heatmap[:, :, :h, :w], n=self.max_keypoints, window_size=5
             )[0]
             xy = kp.xys
-            flat = (xy[:, 1] * dense.shape[-1] + xy[:, 0]).to(self.device)
+            flat = xy[:, 1] * dense.shape[-1] + xy[:, 0]
             desc = dense[0].flatten(1).index_select(1, flat).T
             desc = torch.nn.functional.normalize(desc, dim=-1)
-        return Features(xy.float().to(self.device), desc.float(), (w, h))
+        return Features(xy.float(), desc.float(), (w, h))
 
     def match(self, f0: Features, f1: Features) -> np.ndarray:
         """Raw matches (k, 2) uint32, indices into f0 / f1."""
@@ -160,8 +156,8 @@ class DiskLightGlue:
         with torch.inference_mode():
             (d0, e0), (d1, e1) = prepare(f0), prepare(f1)
             m, n = d0.shape[1], d1.shape[1]
-            ind0, ind1 = np.arange(m), np.arange(n)  # kept points (pruning)
-            thresholds = lg.confidence_thresholds.cpu()
+            ind0 = torch.arange(m, device=self.device)  # kept points (pruning)
+            ind1 = torch.arange(n, device=self.device)
             i = 0  # the last layer run (LightGlue has at least one)
             for i in range(lg.conf.n_layers):
                 d0, d1 = lg.transformers[i](d0, d1, e0, e1)
@@ -174,72 +170,29 @@ class DiskLightGlue:
                         break
                 if self.prune and lg.conf.width_confidence > 0:
                     if d0.shape[-2] > self.prune_min_keypoints:
-                        keep = self._keep(i, d0, t0, thresholds)
-                        ind0, d0, e0 = ind0[keep], *self._select(keep, d0, e0)
+                        ind0, d0, e0 = self._prune(i, t0, ind0, d0, e0)
                     if d1.shape[-2] > self.prune_min_keypoints:
-                        keep = self._keep(i, d1, t1, thresholds)
-                        ind1, d1, e1 = ind1[keep], *self._select(keep, d1, e1)
+                        ind1, d1, e1 = self._prune(i, t1, ind1, d1, e1)
                     if len(ind0) == 0 or len(ind1) == 0:
                         return none
-            # kornia's MatchAssignment.forward, split: the similarity matrix on
-            # the device, the dual softmax on the device or the CPU.
-            head = cast("MatchAssignment", lg.log_assignment[i])
-            md0, md1 = head.final_proj(d0), head.final_proj(d1)
-            scale = md0.shape[-1] ** 0.25
-            sim = torch.einsum("bmd,bnd->bmn", md0 / scale, md1 / scale)
-            z0, z1 = head.matchability(d0), head.matchability(d1)
-            if self.assignment_on_device:
-                v0, i0, i1 = double_softmax_maxima(sim, z0, z1)
-            else:
-                scores = self.sigmoid_log_double_softmax(sim.cpu(), z0.cpu(), z1.cpu())
-                max0 = scores[0, :-1, :-1].max(1)
-                max1 = scores[0, :-1, :-1].max(0)
-                v0, i0 = max0.values.numpy(), max0.indices.numpy()
-                i1 = max1.indices.numpy()
-        mm = mutual_matches(v0, i0, i1, lg.conf.filter_threshold)
-        return np.stack([ind0[mm[:, 0]], ind1[mm[:, 1]]], axis=1).astype(np.uint32)
+            # kornia's match assignment (dual softmax) and filter_matches.
+            scores, _ = lg.log_assignment[i](d0, d1)
+            m0 = self.filter_matches(scores, lg.conf.filter_threshold)[0][0]
+            k0 = torch.where(m0 > -1)[0]
+            matches = torch.stack([ind0[k0], ind1[m0[k0]]], -1)
+        return matches.cpu().numpy().astype(np.uint32)
 
-    def _keep(self, i: int, desc, token, thresholds) -> np.ndarray:
-        """kornia's get_pruning_mask, evaluated on the CPU: indices of the kept points."""
+    def _prune(self, i: int, token, ind, desc, encoding):
+        """kornia's point pruning (get_pruning_mask) for one image's points."""
         lg = self.lightglue
         head = cast("MatchAssignment", lg.log_assignment[i])
-        keep = head.get_matchability(desc).cpu() > (1 - lg.conf.width_confidence)
-        if token is not None:  # low-confidence points are never pruned
-            keep |= token.cpu() <= thresholds[i]
-        return np.flatnonzero(keep[0].numpy())
-
-    def _select(self, keep: np.ndarray, desc, encoding):
-        k = self.torch.from_numpy(keep).to(self.device)
-        return desc.index_select(1, k), encoding.index_select(-2, k)
-
-
-def double_softmax_maxima(sim, z0, z1) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Row maxima and argmaxima, and column argmaxima, of kornia's
-    `sigmoid_log_double_softmax(sim, z0, z1)[0, :-1, :-1]`, computed on sim's device.
-
-    log_softmax(x) is written as x - logsumexp(x), and reductions run over the
-    last dimension of contiguous tensors: on PyTorch XPU 2.14, log_softmax over
-    more than 4096 entries is wrong, while logsumexp, max and transposed copies
-    are correct (docs/DEPENDENCY_ISSUES.md).
-    """
-    import torch
-
-    logsigmoid = torch.nn.functional.logsigmoid
-    sim_t = sim.transpose(-1, -2).contiguous()
-    scores0 = sim - torch.logsumexp(sim, -1, keepdim=True)
-    scores1 = (sim_t - torch.logsumexp(sim_t, -1, keepdim=True)).transpose(-1, -2)
-    scores = scores0 + scores1 + (logsigmoid(z0) + logsigmoid(z1).transpose(1, 2))
-    max0 = scores[0].max(-1)
-    i1 = scores[0].transpose(-1, -2).contiguous().max(-1).indices
-    return max0.values.cpu().numpy(), max0.indices.cpu().numpy(), i1.cpu().numpy()
-
-
-def mutual_matches(v0: np.ndarray, i0: np.ndarray, i1: np.ndarray, th: float) -> np.ndarray:
-    """kornia's `filter_matches` for one pair: mutual best matches whose
-    probability exp(log-assignment) exceeds `th`."""
-    rows = np.arange(len(i0))
-    keep = (i1[i0] == rows) & (np.exp(v0) > th)
-    return np.stack([rows[keep], i0[keep]], axis=1).astype(np.uint32)
+        mask = lg.get_pruning_mask(token, head.get_matchability(desc), i)
+        keep = self.torch.where(mask[0])[0]
+        return (
+            ind.index_select(0, keep),
+            desc.index_select(1, keep),
+            encoding.index_select(-2, keep),
+        )
 
 
 def cross_block_forward(self, x0, x1, mask=None, *, attention):
@@ -247,9 +200,8 @@ def cross_block_forward(self, x0, x1, mask=None, *, attention):
 
     m0 = softmax(q0 q1^T / sqrt(d)) v1 and m1 = softmax(q1 q0^T / sqrt(d)) v0,
     as in kornia (which scales q0 and q1 by d^-1/4 each and, on CUDA, uses its
-    attention module like this). kornia's own version on other devices takes a
-    softmax over all keypoints of the other image, which is wrong on PyTorch
-    XPU 2.14 above 4096 keypoints; scaled_dot_product_attention is correct.
+    attention module like this). On other devices kornia computes the attention
+    matrix and its softmax explicitly instead of using the fused kernel.
     """
     import torch
 

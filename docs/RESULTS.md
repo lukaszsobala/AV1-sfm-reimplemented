@@ -150,6 +150,24 @@ Sources: [`results/lunar-lake/kitti117_torch.md`](../results/lunar-lake/kitti117
 (DISK + LightGlue before the speed-ups: float32 attention, no pruning) and
 [`kitti117.md`](../results/lunar-lake/kitti117.md) (an earlier SIFT run).
 
+**Driver update (2026-10-04).** The tables were measured with the Ubuntu
+archive's drivers. With Intel's graphics PPA (compute runtime 26.31.39395,
+media driver 26.3.2), which the GPU matchers now require
+([USAGE.md](USAGE.md#intel-lunar-lake--arc-on-ubuntu-2604)), the results are
+unchanged:
+
+- QSV and VA-API produce byte-identical streams, so keypoints and raw matches
+  are the same ("Balanced"; encoding 0.76 and 0.51 s, MV matching and COLMAP
+  verification 30.1 and 32.2 s, within run-to-run variation of the table's).
+- DISK + LightGlue runs entirely on the GPU, without the earlier workarounds
+  for the old driver ([DEPENDENCY_ISSUES.md](DEPENDENCY_ISSUES.md) 1–2). Its
+  keypoints and raw matches are identical to the earlier code's on all 117
+  images and 1,115 pairs. Two alternating runs of each in the "Performance"
+  profile: extraction 18.2 and 18.3 s (earlier code 18.9 and 22.2 s) at one
+  CPU core instead of about 1.4; matching and verification 172.1 and 174.8 s
+  (earlier code 170.5 and 193.2 s). Matching is bound by LightGlue on the GPU
+  and takes the same time as in the "Balanced" run of the table.
+
 | Method | Pre-processing (s) | Feature matching (s) | CPU % (1 core = 100) | CPU % of machine | Keypoints / img | Raw matches / img | Verified matches / img | Scored pairs | Inlier ratio (pooled) | Inlier ratio (median of pairs) | Median Sampson (px) | Median SE (normalised²) |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
 | AV1 MV, libaom (COLMAP verification) | 4.5 | 82.1 | 721 | 90.2 | 20,757 | 351,240 | 343,857 | 5,171 | 0.970 | – | 0.611 | 7.23e-07 |

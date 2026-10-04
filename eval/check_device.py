@@ -21,7 +21,7 @@ import numpy as np
 import pycolmap
 
 from av1sfm.devices import DEVICES, device_name, pick_device, synchronize
-from av1sfm.learned import DiskLightGlue, Features, double_softmax_maxima
+from av1sfm.learned import DiskLightGlue, Features
 from av1sfm.sift_exact import match_descriptors
 
 
@@ -103,7 +103,7 @@ def isolate_modules(nets, fc0, fc1, dev) -> None:
     torch = nets["cpu"].torch
     cpu_lg, dev_lg = nets["cpu"].lightglue, nets["device"].lightglue
     for net in nets.values():
-        configure(net, early_stop=False, prune=False, half=False, on_device=False)
+        configure(net, early_stop=False, prune=False, half=False)
     wanted = [
         (n, m)
         for n, m in cpu_lg.named_modules()
@@ -188,9 +188,6 @@ def primitives(dev) -> None:
         "softmax over 5000": lambda t: torch.softmax(t[3], -1),
         "log_softmax over 5000": lambda t: torch.log_softmax(t[3], -1),
         "logsumexp over 5000": lambda t: torch.logsumexp(t[3], -1),
-        "double_softmax_maxima (values)": lambda t: torch.from_numpy(
-            double_softmax_maxima(t[3][0, :1], t[3][0, 1, :, :1][None], t[3][0, 2, :, :1][None])[0]
-        ),
         "max over 5000 (values)": lambda t: t[3].max(-1).values,
         "sum over 5000": lambda t: t[3].sum(-1),
         "add transposed (x + x^T)": lambda t: t[3] + t[3].transpose(-1, -2),
@@ -209,12 +206,11 @@ def primitives(dev) -> None:
                 print(f"  {name:38s} FAILED: {type(e).__name__}: {e}")
 
 
-def configure(net: DiskLightGlue, *, early_stop=True, prune=True, half=None, on_device=None):
+def configure(net: DiskLightGlue, *, early_stop=True, prune=True, half=None):
     gpu = net.device.type != "cpu"
     net.lightglue.conf.depth_confidence = 0.95 if early_stop else -1
     net.prune = prune
     net.half_attention = gpu if half is None else half
-    net.assignment_on_device = gpu if on_device is None else on_device
     net.prune_min_keypoints = 1536 if net.half_attention else 1024
 
 
@@ -222,7 +218,7 @@ def lightglue_variants(nets, fd0, fd1, fc0, fc1) -> None:
     """LightGlue on identical inputs: per-layer differences, then full matching."""
     # Layer by layer in float32, without early stopping or pruning (all layers run).
     for net in nets.values():
-        configure(net, early_stop=False, prune=False, half=False, on_device=False)
+        configure(net, early_stop=False, prune=False, half=False)
     outs = {}
     for key, (f0, f1) in {"cpu": (fc0, fc1), "device": (fd0, fd1)}.items():
         lg, rec = nets[key].lightglue, []
@@ -244,17 +240,17 @@ def lightglue_variants(nets, fd0, fd1, fc0, fc1) -> None:
         rel = (a - b).abs().max().item() / max(a.abs().max().item(), 1e-12)
         print(f"  {name:18s} max rel. diff {rel:.2e}")
 
-    # Full matching. The CPU reference always runs in float32 with the CPU dual
-    # softmax, pruning (if any) from the same number of keypoints as the device.
+    # Full matching. The CPU reference always runs in float32, pruning (if any)
+    # from the same number of keypoints as the device.
     variants = {
-        "fp32, no pruning, CPU softmax": {"prune": False, "half": False, "on_device": False},
-        "fp32, pruning, device softmax": {"half": False},
+        "fp32, no pruning": {"prune": False, "half": False},
+        "fp32, pruning": {"half": False},
         "fp16 attention, no pruning": {"prune": False},
         "default (fp16, pruning)": {},
     }
     for name, cfg in variants.items():
         configure(nets["device"], **cfg)
-        configure(nets["cpu"], prune=cfg.get("prune", True), half=False, on_device=False)
+        configure(nets["cpu"], prune=cfg.get("prune", True), half=False)
         nets["cpu"].prune_min_keypoints = nets["device"].prune_min_keypoints
         lc = nets["cpu"].match(fc0, fc1)
         ld = nets["device"].match(fd0, fd1)
