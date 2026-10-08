@@ -170,6 +170,13 @@ def main(argv: list[str] | None = None) -> None:
         "--frame-format", choices=["png", "jpg"], default="png", help="frames from a video"
     )
     p.add_argument("--export-dataset", action="store_true", help="also OUT_DIR/dataset/")
+    p.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="print the messages of COLMAP, FFmpeg and dav1d instead of a progress display "
+        "(otherwise they go to OUT_DIR/reconstruct.log)",
+    )
     g = p.add_argument_group("SIFT matcher")
     g.add_argument("--sift-matching", choices=["sequential", "exhaustive"], default="sequential")
     g.add_argument("--sift-overlap", type=int, default=10, help="sequential: neighbours per image")
@@ -238,7 +245,11 @@ def main(argv: list[str] | None = None) -> None:
         print(text)
 
     elif a.cmd == "reconstruct":
+        from .progress import Progress
         from .reconstruct import ReconstructConfig, reconstruct
+
+        if not a.input.exists():
+            ap.error(f"input not found: {a.input}")
 
         cfg = ReconstructConfig(
             matcher=a.matcher,
@@ -261,15 +272,22 @@ def main(argv: list[str] | None = None) -> None:
             export_dataset=a.export_dataset,
             frame_format=a.frame_format,
         )
-        st = reconstruct(a.input, a.out_dir, cfg)
-        for name, t in st["timings"].items():
-            print(f"  {name:10s} {t['wall_s']:9.1f} s")
+        progress = Progress(live=False if a.verbose else None)
+        a.out_dir.mkdir(parents=True, exist_ok=True)
+        log = None if a.verbose else a.out_dir / "reconstruct.log"
+        with progress.capture(log):
+            st = reconstruct(a.input, a.out_dir, cfg, progress=progress)
         print(
-            f"{st['registered_images']}/{st['num_images']} images registered, "
+            f"\n{st['registered_images']}/{st['num_images']} images registered, "
             f"{st.get('points3D', 0):,} points, "
-            f"{st.get('mean_reprojection_error_px', float('nan')):.3f} px, "
-            f"{st['total_wall_s']:.1f} s; see {a.out_dir / 'reconstruct.json'}"
+            f"mean reprojection error {st.get('mean_reprojection_error_px', float('nan')):.3f} px, "
+            f"{st['total_wall_s']:.1f} s"
         )
+        outputs = ["sparse/0/", "points.ply"] if st.get("points3D") else []
+        outputs += ["dataset/"] if st.get("points3D") and a.export_dataset else []
+        outputs += ["reconstruct.json (statistics)"]
+        outputs += [] if a.verbose else ["reconstruct.log (COLMAP and FFmpeg messages)"]
+        print(f"In {a.out_dir}: {', '.join(outputs)}")
 
     elif a.cmd == "score":
         ckpt = a.out.with_suffix(".partial.jsonl") if a.out else None

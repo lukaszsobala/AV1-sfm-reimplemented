@@ -58,7 +58,8 @@ a textured mesh or a Gaussian splat.
   vectors are used as they are (the stream is copied, not re-encoded), also
   for ordinary random-access AV1 videos with hidden and future reference
   frames; other videos are encoded first. Exact SIFT matching can replace
-  the motion vectors (`--matcher sift`).
+  the motion vectors (`--matcher sift`). A progress display shows each stage;
+  the messages of COLMAP and FFmpeg go to a log file.
 - **The matcher** (`av1sfm match`): an image folder in, a COLMAP database out.
   It works with five AV1 encoders: libaom and SVT-AV1 in software; Intel Quick
   Sync (QSV) and VA-API on Intel GPUs; and Vulkan Video.
