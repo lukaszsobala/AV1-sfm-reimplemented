@@ -32,6 +32,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -284,6 +285,21 @@ def _first_error(stderr: str) -> str:
     return lines[-1] if lines else "failed"
 
 
+def run_ffmpeg(cmd: list[str], progress: Callable[[int], None] | None = None) -> None:
+    """Run an ffmpeg command; `progress` gets the number of frames written so far."""
+    if progress is None:
+        subprocess.run(cmd, check=True)
+        return
+    full = [cmd[0], "-progress", "pipe:1", "-nostats", *cmd[1:]]
+    with subprocess.Popen(full, stdout=subprocess.PIPE, text=True) as proc:
+        assert proc.stdout is not None
+        for line in proc.stdout:
+            if line.startswith("frame=") and line[6:].strip().isdigit():
+                progress(int(line[6:]))
+    if proc.returncode:
+        raise subprocess.CalledProcessError(proc.returncode, full)
+
+
 def resolve_encoder(params: EncodeParams, ffmpeg: str | None = None) -> EncodeParams:
     """Replace encoder="auto" by the first working backend: vulkan, qsv, vaapi, svtav1."""
     if params.encoder != "auto":
@@ -301,11 +317,13 @@ def encode_images(
     params: EncodeParams | None = None,
     *,
     scale: tuple[int, int] | None = None,
+    progress: Callable[[int], None] | None = None,
 ) -> list[str]:
     """Encode `images` (in order) to `out_ivf`. Returns the ffmpeg command used.
 
     Frames are linked into a temporary numbered sequence so arbitrary file
     names and subsets work. `scale=(w, h)` resizes before encoding.
+    `progress` gets the number of frames encoded so far.
     """
     params = resolve_encoder(params or EncodeParams())
     if not images:
@@ -321,5 +339,5 @@ def encode_images(
             h, w = read_image(images[0]).shape[:2]
             size = (w, h)
         cmd = ffmpeg_command(src, out_ivf, params, num_frames=len(images), scale=scale, size=size)
-        subprocess.run(cmd, check=True)
+        run_ffmpeg(cmd, progress)
     return cmd

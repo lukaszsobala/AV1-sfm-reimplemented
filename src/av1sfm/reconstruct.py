@@ -13,6 +13,8 @@ file. The outputs in OUT_DIR:
   points.ply        coloured point cloud of the largest model
   dataset/          with `export_dataset`: undistorted workspace for OpenMVS / Brush
   reconstruct.json  settings, stage timings and statistics
+  reconstruct.log   messages of COLMAP, FFmpeg and dav1d (`av1sfm reconstruct`
+                    shows a progress display instead; `--verbose` prints them)
 
 Matchers: `mv` (AV1 motion vectors, the default) or `sift` (COLMAP SIFT
 features, by default with exact sequential matching on a PyTorch device, as
@@ -41,6 +43,7 @@ from .encode import list_images
 from .export import export_dataset, export_ply
 from .mapping import largest_model, model_stats, run_mapper
 from .pipeline import MVMatchConfig, _jsonable, matches_per_image, run_mv_matching
+from .progress import Progress, global_mapper, incremental_mapper
 from .timing import Timer
 from .video import copy_av1_to_ivf, extract_frames, probe_video
 
@@ -68,15 +71,25 @@ class ReconstructConfig:
     frame_format: Literal["png", "jpg"] = "png"
 
 
-def reconstruct(input_path: str | Path, out_dir: str | Path, cfg: ReconstructConfig) -> dict:
+def reconstruct(
+    input_path: str | Path,
+    out_dir: str | Path,
+    cfg: ReconstructConfig,
+    progress: Progress | None = None,
+) -> dict:
     """Run every stage; returns the statistics also written to `reconstruct.json`."""
     inp, out = Path(input_path), Path(out_dir)
+    if cfg.matcher not in ("mv", "sift"):
+        raise ValueError(f"matcher must be 'mv' or 'sift', got {cfg.matcher!r}")
     out.mkdir(parents=True, exist_ok=True)
+    progress = progress or Progress(enabled=False)
     stats: dict = {"input": str(inp), "config": _jsonable(asdict(cfg)), "cpu_count": os.cpu_count()}
     pre, post = Timer(), Timer()
 
     ivf = out / "clip.ivf"
     encode = True
+    copy = False
+    info = None
     if inp.is_dir():
         image_dir = inp
         if cfg.ivf is not None:
@@ -85,18 +98,33 @@ def reconstruct(input_path: str | Path, out_dir: str | Path, cfg: ReconstructCon
         info = probe_video(inp)
         stats["video"] = asdict(info)
         image_dir = out / "images"
-        with pre.stage("frames"):
-            extract_frames(inp, image_dir, cfg.frame_format)
-        if cfg.matcher == "mv" and info.codec == "av1" and not cfg.reencode:
-            with pre.stage("copy"):  # the MVs are in the stream already
+        copy = cfg.matcher == "mv" and info.codec == "av1" and not cfg.reencode
+        encode = not copy
+    progress.total_steps = planned_steps(cfg, video=info is not None, encode=encode, copy=copy)
+
+    if info is not None:
+        with (
+            pre.stage("frames"),
+            progress.step(
+                f"Decoding the video into {image_dir.name}/",
+                total=info.frames,
+                unit="frames",
+            ) as step,
+        ):
+            n = len(extract_frames(inp, image_dir, cfg.frame_format, progress=step.update))
+            step.update(done=n, total=n)
+        if copy:
+            with (
+                pre.stage("copy"),  # the MVs are in the stream already
+                progress.step("Copying the AV1 stream (no re-encoding)"),
+            ):
                 copy_av1_to_ivf(inp, ivf)
-            encode = False
 
     db = out / "database.db"
     if cfg.matcher == "mv":
-        matching = run_mv_matching(image_dir, db, ivf, cfg.mv, encode=encode)
+        matching = run_mv_matching(image_dir, db, ivf, cfg.mv, encode=encode, progress=progress)
         matching["matches"] = matches_per_image(db)
-    elif cfg.matcher == "sift":
+    else:
         from .sift import run_sift_matching
 
         matching = run_sift_matching(
@@ -108,15 +136,24 @@ def reconstruct(input_path: str | Path, out_dir: str | Path, cfg: ReconstructCon
             device=cfg.device,
             camera=cfg.mv.camera,
             max_features=cfg.max_features,
+            progress=progress,
         )
-    else:
-        raise ValueError(f"matcher must be 'mv' or 'sift', got {cfg.matcher!r}")
     stats["matching"] = matching
 
     sparse = out / "sparse"
     if sparse.exists():
         shutil.rmtree(sparse)
-    with post.stage("mapper"):
+    num_images = len(list_images(image_dir))
+    with (
+        post.stage("mapper"),
+        progress.step(
+            "Reconstructing cameras and 3D points"
+            + (" (global mapper)" if cfg.mapper == "global" else ""),
+            total=num_images if cfg.mapper == "incremental" else None,
+            unit="images",
+            parse=incremental_mapper if cfg.mapper == "incremental" else global_mapper,
+        ) as step,
+    ):
         recs = run_mapper(
             db,
             image_dir,
@@ -130,19 +167,40 @@ def reconstruct(input_path: str | Path, out_dir: str | Path, cfg: ReconstructCon
             global_ratio=cfg.global_ratio,
             global_tracks_per_view=cfg.global_tracks_per_view,
         )
-    stats["num_images"] = len(list_images(image_dir))
+        if recs:
+            rec = largest_model(recs)[1]
+            step.update(done=rec.num_reg_images(), detail="")
+            step.result = (
+                f"{rec.num_reg_images()}/{num_images} images, {rec.num_points3D():,} points"
+            )
+        else:
+            step.update(done=0, detail="")
+            step.result = "no model"
+    stats["num_images"] = num_images
     stats["num_models"] = len(recs)
     if recs:
         best, rec = largest_model(recs)
         stats["model"] = str(sparse / str(best))
         stats.update(model_stats(rec))
         with post.stage("export"):
-            export_ply(sparse / str(best), out / "points.ply")
+            with progress.step("Writing points.ply"):
+                export_ply(sparse / str(best), out / "points.ply")
             if cfg.export_dataset:
-                export_dataset(sparse / str(best), image_dir, out / "dataset")
+                with progress.step("Undistorting the images into dataset/"):
+                    export_dataset(sparse / str(best), image_dir, out / "dataset")
     else:
         stats["registered_images"] = 0
     stats["timings"] = {**pre.asdict(), **matching["timings"], **post.asdict()}
     stats["total_wall_s"] = round(sum(t["wall_s"] for t in stats["timings"].values()), 3)
     (out / "reconstruct.json").write_text(json.dumps(stats, indent=2))
     return stats
+
+
+def planned_steps(cfg: ReconstructConfig, *, video: bool, encode: bool, copy: bool) -> int:
+    """Number of progress steps `reconstruct` shows (the "[k/N]" of the display)."""
+    n = (1 + copy) if video else 0
+    if cfg.matcher == "mv":
+        n += encode + 3 + (cfg.mv.two_view == "verify")  # MVs, tracks, database (+ verify)
+    else:
+        n += 2 + (cfg.sift_matcher == "exact") * 2  # extract, match (+ warm-up, verify)
+    return n + 2 + cfg.export_dataset  # mapper, points.ply (+ dataset); no model: one less

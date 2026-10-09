@@ -6,6 +6,7 @@ centres must be equally spaced on a line. Skipped without ffmpeg (libaom) or
 the patched dav1d.
 """
 
+import io
 import subprocess
 
 import cv2
@@ -17,6 +18,7 @@ from av1sfm._vendor import dav1d_inspect
 from av1sfm.colmap_db import CameraSpec
 from av1sfm.encode import available_encoders, find_ffmpeg
 from av1sfm.pipeline import MVMatchConfig
+from av1sfm.progress import Progress
 from av1sfm.reconstruct import ReconstructConfig, reconstruct
 
 
@@ -71,6 +73,17 @@ def video(frames, path, codec_args):
     return path
 
 
+def run(inp, out, cfg):
+    """`reconstruct` with a progress display; every planned step must run."""
+    text = io.StringIO()
+    progress = Progress(text, live=False)
+    st = reconstruct(inp, out, cfg, progress=progress)
+    lines = text.getvalue().splitlines()
+    assert progress.steps_done == progress.total_steps == len(lines), lines
+    assert all(line.startswith("✓ [") for line in lines), lines
+    return st
+
+
 def check_trajectory(st, min_registered=N):
     assert st["registered_images"] >= min_registered, st
     assert st["mean_reprojection_error_px"] < 0.5
@@ -86,7 +99,7 @@ def check_trajectory(st, min_registered=N):
 
 def test_image_folder_with_motion_vectors(frames, tmp_path):
     cfg = ReconstructConfig(mv=MVMatchConfig(camera=CAMERA), fix_intrinsics=True)
-    st = reconstruct(frames, tmp_path, cfg)
+    st = run(frames, tmp_path, cfg)
     assert "encode" in st["timings"] and st["matching"]["stream"]["low_delay"]
     check_trajectory(st)
     assert (tmp_path / "points.ply").stat().st_size > 1000
@@ -97,7 +110,7 @@ def test_av1_video_is_copied_not_reencoded(frames, tmp_path):
     # A random-access stream, as libaom writes by default (hidden alt-refs).
     mp4 = video(frames, tmp_path / "in.mp4", ["-c:v", "libaom-av1", "-cpu-used", "8", "-crf", "20"])
     cfg = ReconstructConfig(mv=MVMatchConfig(camera=CAMERA), fix_intrinsics=True)
-    st = reconstruct(mp4, tmp_path / "out", cfg)
+    st = run(mp4, tmp_path / "out", cfg)
     assert "copy" in st["timings"] and "encode" not in st["timings"]
     assert st["video"]["codec"] == "av1" and st["num_images"] == N
     assert not st["matching"]["stream"]["low_delay"]
@@ -107,7 +120,7 @@ def test_av1_video_is_copied_not_reencoded(frames, tmp_path):
 def test_other_codecs_are_encoded_to_av1(frames, tmp_path):
     mkv = video(frames, tmp_path / "in.mkv", ["-c:v", "ffv1"])
     cfg = ReconstructConfig(mv=MVMatchConfig(camera=CAMERA), fix_intrinsics=True)
-    st = reconstruct(mkv, tmp_path / "out", cfg)
+    st = run(mkv, tmp_path / "out", cfg)
     assert st["video"]["codec"] == "ffv1" and "encode" in st["timings"]
     check_trajectory(st)
 
@@ -123,6 +136,6 @@ def test_sift_matcher(frames, tmp_path, matcher):
         mv=MVMatchConfig(camera=CAMERA),
         fix_intrinsics=True,
     )
-    st = reconstruct(frames, tmp_path, cfg)
+    st = run(frames, tmp_path, cfg)
     assert st["matching"]["config"]["matcher"] == matcher
     check_trajectory(st)

@@ -17,10 +17,11 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from .encode import find_ffmpeg
+from .encode import find_ffmpeg, run_ffmpeg
 
 VIDEO_EXTS = {".mp4", ".m4v", ".mov", ".mkv", ".webm", ".ivf", ".obu", ".ts", ".mts", ".avi"}
 
@@ -100,11 +101,16 @@ def copy_av1_to_ivf(video: str | Path, out_ivf: str | Path, ffmpeg: str | None =
 
 
 def extract_frames(
-    video: str | Path, out_dir: str | Path, ext: str = "png", ffmpeg: str | None = None
+    video: str | Path,
+    out_dir: str | Path,
+    ext: str = "png",
+    ffmpeg: str | None = None,
+    progress: Callable[[int], None] | None = None,
 ) -> list[Path]:
     """Decode every frame of the first video stream to `out_dir/000000.<ext>`, ...
 
     8-bit RGB; JPEG at FFmpeg's highest quality (-q:v 2) if `ext` is "jpg".
+    `progress` gets the number of frames written so far.
     """
     out_dir = Path(out_dir)
     if out_dir.exists():
@@ -115,5 +121,5 @@ def extract_frames(
     cmd += ["-fps_mode", "passthrough", "-start_number", "0"]
     cmd += ["-pix_fmt", "yuvj420p", "-q:v", "2"] if ext == "jpg" else ["-pix_fmt", "rgb24"]
     cmd += [str(out_dir / f"%06d.{ext}")]
-    subprocess.run(cmd, check=True)
+    run_ffmpeg(cmd, progress)
     return sorted(out_dir.glob(f"*.{ext}"))

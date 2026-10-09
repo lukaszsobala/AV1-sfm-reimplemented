@@ -147,6 +147,23 @@ The last command takes 41.5 s for 117 KITTI frames on a Core Ultra 7 258V
 verification, 22.0 s mapping. All 117 images register, with 35,285 points and
 a trajectory error of 0.205 m against KITTI's ground truth.
 
+**Progress.** Each stage is shown on one line. On a terminal, the line of
+the running stage has a bar, a count and a clock, and it is replaced by a ✓
+line with the stage's time when the stage is done. The messages of COLMAP,
+FFmpeg and dav1d go to `OUT_DIR/reconstruct.log`; if a stage fails, its last
+lines are printed with the error. `--verbose` prints those messages instead
+and shows only the finished lines. The MV matcher on KITTI frames 0–39 (a
+4-core cloud machine) shows:
+
+```text
+✓ [1/7] Encoding the frames to AV1 (libaom)  40 frames                        3.0 s
+✓ [2/7] Reading the motion vectors (dav1d)  40 frames                         0.3 s
+✓ [3/7] Building tracks from the motion vectors  74,388 tracks                2.2 s
+✓ [4/7] Writing the matches to database.db  6,220,612 matches in 780 pairs    0.1 s
+✓ [5/7] Verifying image pairs (RANSAC)  780 of 780 pairs verified            38.6 s
+⠼ [6/7] Reconstructing cameras and 3D points  ━━━━━━━━━╸──────  23/40 images · bundle adjustment · 1:12
+```
+
 **Outputs** in OUT_DIR:
 
 | Path | Content |
@@ -157,6 +174,7 @@ a trajectory error of 0.205 m against KITTI's ground truth.
 | `sparse/0/` | the reconstruction (cameras, images, points3D) in COLMAP's format; open it in the COLMAP GUI (File → Import model). If the images do not connect into one model, the others are `sparse/1/` …, and `reconstruct.json` names the largest. |
 | `points.ply` | coloured point cloud of the largest model (MeshLab, CloudCompare, Blender). |
 | `dataset/` | with `--export-dataset`: the undistorted workspace for OpenMVS or Brush ([Viewing and using a reconstruction](#viewing-and-using-a-reconstruction)). |
+| `reconstruct.log` | the messages of COLMAP, FFmpeg and dav1d (not written with `--verbose`). |
 | `reconstruct.json` | the settings, the video's codec, size and frame count, matching statistics, the wall and CPU time of every stage, and the largest model's registered images, 3D points, mean reprojection error, mean track length and refined camera. |
 
 **How the input is handled:**
@@ -197,6 +215,7 @@ a trajectory error of 0.205 m against KITTI's ground truth.
 | `--reencode` | AV1 video input: encode the frames in the low-delay configuration instead of copying the stream. |
 | `--frame-format` [png] | frames of a video input: `png` (lossless RGB) or `jpg` (FFmpeg's highest quality, `-q:v 2`; smaller). |
 | `--export-dataset` | also write `dataset/`. |
+| `-v`, `--verbose` | print the messages of COLMAP, FFmpeg and dav1d instead of the progress display. |
 | `--camera-model` [SIMPLE_RADIAL], `--camera-params` | the shared camera; parameters comma-separated in COLMAP's order (`f,cx,cy,k` for SIMPLE_RADIAL). |
 | `--sift-matching` [sequential] | `--matcher sift`: `sequential` (each image with its next `--sift-overlap` images) or `exhaustive` (all pairs). |
 | `--sift-overlap` [10] | sequential matching: neighbours per image. |

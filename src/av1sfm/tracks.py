@@ -46,6 +46,7 @@ before entering the other.
 from __future__ import annotations
 
 from collections import Counter, defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from itertools import pairwise
 from typing import Literal
@@ -159,8 +160,15 @@ def _seed_points(
     )
 
 
-def build_tracks(frames: list[FrameMotion], params: TrackParams | None = None) -> Tracks:
-    """Propagate block MVs into tracks (see module docstring)."""
+def build_tracks(
+    frames: list[FrameMotion],
+    params: TrackParams | None = None,
+    progress: Callable[[int], None] | None = None,
+) -> Tracks:
+    """Propagate block MVs into tracks (see module docstring).
+
+    `progress` gets the number of frames processed so far.
+    """
     p = params or TrackParams()
     by_node = {f.decode_index: f for f in frames}
     order = sorted(by_node, reverse=True)
@@ -182,7 +190,9 @@ def build_tracks(frames: list[FrameMotion], params: TrackParams | None = None) -
         if frame in shared:
             seen_in[frame].append(ids)
 
-    for node in order:
+    for k, node in enumerate(order):
+        if progress:
+            progress(k)
         fm = by_node[node]
         n = fm.index
         lookup = MotionLookup.from_frame(fm, skip_zero=p.skip_zero, prev_only=p.prev_only)

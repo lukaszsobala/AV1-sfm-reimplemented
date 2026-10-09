@@ -13,9 +13,10 @@ import numpy as np
 import pycolmap
 
 from .colmap_db import CameraSpec, create_database, two_view_options, write_match_graph
-from .encode import EncodeParams, encode_images, list_images, read_image
+from .encode import EncodeParams, encode_images, list_images, read_image, resolve_encoder
 from .extract import FrameMotion, load_frame_motion, num_shown_frames
 from .geometry import PairScore, RansacSettings, score_pair, summarize
+from .progress import Progress
 from .timing import Timer
 from .tracks import TrackParams, build_tracks, tracks_to_matches
 
@@ -37,6 +38,7 @@ def run_mv_matching(
     cfg: MVMatchConfig | None = None,
     *,
     encode: bool = True,
+    progress: Progress | None = None,
 ) -> dict:
     """Run the MV pipeline. The i-th displayed frame is the i-th image (sorted by name).
 
@@ -44,25 +46,48 @@ def run_mv_matching(
     video" scenario); the encode stage is then absent from the timings.
     """
     cfg = cfg or MVMatchConfig()
+    progress = progress or Progress(enabled=False)
     images = list_images(image_dir)
     timer = Timer()
     ffmpeg_cmd: list[str] | None = None
     if encode:
         with timer.stage("encode"):
-            ffmpeg_cmd = encode_images(images, ivf_path, cfg.encode)
-    with timer.stage("extract"):
+            params = resolve_encoder(cfg.encode)
+            with progress.step(
+                f"Encoding the frames to AV1 ({params.encoder})",
+                total=len(images),
+                unit="frames",
+            ) as step:
+                ffmpeg_cmd = encode_images(images, ivf_path, params, progress=step.update)
+    with (
+        timer.stage("extract"),
+        progress.step("Reading the motion vectors (dav1d)") as step,
+    ):
         frames = load_frame_motion(ivf_path, n_threads=cfg.decoder_threads)
+        step.result = f"{len(frames):,} frames"
     if num_shown_frames(frames) != len(images):
         raise ValueError(f"{num_shown_frames(frames)} displayed frames but {len(images)} images")
     clamp_to_image_size(frames, images[0])
-    with timer.stage("tracks"):
-        tracks = build_tracks(frames, cfg.track)
+    with (
+        timer.stage("tracks"),
+        progress.step(
+            "Building tracks from the motion vectors", total=len(frames), unit="frames"
+        ) as step,
+    ):
+        tracks = build_tracks(frames, cfg.track, progress=step.update)
+        step.update(done=len(frames))
         graph = tracks_to_matches(tracks, cfg.max_pair_gap)
+        step.result = f"{tracks.num_tracks:,} tracks"
     with timer.stage("database"):
         ids = create_database(db_path, image_dir, [p.name for p in images], cfg.camera)
         frame_to_id = {i: ids[p.name] for i, p in enumerate(images)}
         db_stats = write_match_graph(
-            db_path, frame_to_id, graph, two_view=cfg.two_view, verify_options=two_view_options()
+            db_path,
+            frame_to_id,
+            graph,
+            two_view=cfg.two_view,
+            verify_options=two_view_options(),
+            progress=progress,
         )
     kp = np.array([len(v) for v in graph.keypoints.values()]) if graph.keypoints else np.zeros(1)
     lengths = tracks.lengths()

@@ -26,7 +26,14 @@ from typing import Literal
 import numpy as np
 import pycolmap
 
+from .progress import Progress, verification_batches
 from .tracks import MatchGraph
+
+# Pairs per geometric-verification batch (COLMAP: 1000). COLMAP logs each
+# batch, which gives the progress display a count; per-pair results do not
+# depend on the batching, and on KITTI 40 frames (780 pairs, 4 threads) 200
+# took as long as 1000.
+VERIFY_BATCH = 200
 
 
 @dataclass
@@ -78,6 +85,7 @@ def write_match_graph(
     two_view: Literal["verify", "trust"] = "verify",
     verify_options: pycolmap.TwoViewGeometryOptions | None = None,
     min_matches: int = 15,
+    progress: Progress | None = None,
 ) -> dict:
     """Write keypoints/matches/two-view geometries. `image_ids` maps frame -> image_id.
 
@@ -85,12 +93,22 @@ def write_match_graph(
     `min_num_inliers` default is 15).
     """
     verify_options = verify_options or two_view_options()
+    progress = progress or Progress(enabled=False)
     stats = {"pairs": 0, "raw_matches": 0, "inlier_pairs": 0, "inlier_matches": 0}
-    with pycolmap.Database.open(db_path) as db, pycolmap.DatabaseTransaction(db):
+    with (
+        progress.step(
+            f"Writing the matches to {Path(db_path).name}",
+            total=len(graph.matches),
+            unit="pairs",
+        ) as step,
+        pycolmap.Database.open(db_path) as db,
+        pycolmap.DatabaseTransaction(db),
+    ):
         for frame, kps in graph.keypoints.items():
             if frame in image_ids:
                 db.write_keypoints(image_ids[frame], np.ascontiguousarray(kps, np.float32))
         for (fa, fb), m in graph.matches.items():
+            step.advance()
             if fa not in image_ids or fb not in image_ids or len(m) < min_matches:
                 continue
             ia, ib = image_ids[fa], image_ids[fb]
@@ -105,14 +123,35 @@ def write_match_graph(
                 tvg.config = pycolmap.TwoViewGeometryConfiguration.UNCALIBRATED
                 tvg.inlier_matches = m
                 db.write_two_view_geometry(ia, ib, tvg)
+        step.result = f"{stats['raw_matches']:,} matches in {stats['pairs']:,} pairs"
     if two_view == "verify":
-        pycolmap.geometric_verification(
-            db_path,
-            pycolmap.GeometricVerifierOptions(),
-            pycolmap.ExistingMatchedPairingOptions(),
-            verify_options,
-        )
+        verify_pairs(db_path, verify_options, progress)
     with pycolmap.Database.open(db_path) as db:
         stats["inlier_pairs"] = db.num_verified_image_pairs()
         stats["inlier_matches"] = db.num_inlier_matches()
     return stats
+
+
+def verify_pairs(
+    db_path: str | Path,
+    options: pycolmap.TwoViewGeometryOptions,
+    progress: Progress | None = None,
+) -> None:
+    """COLMAP's geometric verification of every pair with raw matches."""
+    progress = progress or Progress(enabled=False)
+    with pycolmap.Database.open(db_path) as db:
+        num_pairs = db.num_matched_image_pairs()
+    pairing = pycolmap.ExistingMatchedPairingOptions()
+    pairing.batch_size = VERIFY_BATCH
+    with progress.step(
+        "Verifying image pairs (RANSAC)",
+        total=num_pairs,
+        unit="pairs",
+        parse=verification_batches(VERIFY_BATCH, num_pairs),
+    ) as step:
+        pycolmap.geometric_verification(
+            db_path, pycolmap.GeometricVerifierOptions(), pairing, options
+        )
+        with pycolmap.Database.open(db_path) as db:
+            step.update(done=num_pairs)
+            step.result = f"{db.num_verified_image_pairs():,} of {num_pairs:,} pairs verified"
