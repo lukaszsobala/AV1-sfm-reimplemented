@@ -9,9 +9,9 @@ results in ways that are easy to miss, follow them.
 |---|---|---|---|---|
 | 1 | Intel GPU compute runtime 26.05.37020 | `nonzero` and boolean-mask indexing on large tensors return too few elements | bug, fixed in 26.31.39395 | Requires 26.31.39395 or newer |
 | 2 | Intel GPU compute runtime 26.05.37020 | `softmax` and `log_softmax` over more than 4096 elements are wrong | bug, fixed in 26.31.39395 | Requires 26.31.39395 or newer |
-| 3 | kornia 0.8.3 | `LightGlue` raises `KeyError: 'xpu'` on any device but CPU, MPS and CUDA | bug | Own forward pass over kornia's layers |
-| 4 | kornia 0.8.3 | LightGlue's fast attention path is CUDA-only | limitation | Same kernels on every device |
-| 5 | kornia 0.8.3 | `LightGlue` prints to stdout | nuisance | Statistics written to a file |
+| 3 | kornia 0.8.3, 0.9.2 | `LightGlue` raises `KeyError: 'xpu'` on any device but CPU, MPS and CUDA | bug | Own forward pass over kornia's layers |
+| 4 | kornia 0.8.3 (0.9: float16 only) | LightGlue's fast attention path is CUDA-only | limitation | Same kernels on every device |
+| 5 | kornia 0.8.3 | `LightGlue` prints to stdout | nuisance, fixed in 0.9 | Statistics written to a file |
 | 6 | COLMAP 4.2.1 | Default SIFT matcher is approximate; result depends on thread count and run | behaviour | GPU exact matcher; documented |
 | 7 | COLMAP 4.2.1 | Geometric verification is not deterministically seeded | behaviour | Documented |
 | 8 | COLMAP 4.2.1 | Default mapper settings fail on forward motion; intrinsics refinement collapses MV reconstructions | behaviour | Settings in ASSUMPTIONS.md R5 |
@@ -20,6 +20,7 @@ results in ways that are easy to miss, follow them.
 | 11 | libaom, SVT-AV1 | Low-delay settings still use references other than the previous frame | behaviour | Each MV follows its real reference |
 | 12 | SVT-AV1 2.x (Ubuntu 26.04) | Rejects odd frame sizes in 4:2:0 | limitation | One repeated column / row of padding |
 | 13 | pycolmap 4.2.1 wheel | "BLAS : Bad memory unallocation!" at interpreter exit | nuisance | None needed; results and exit status unaffected |
+| 14 | kornia 0.8.3 | DISK drops an image's weakest keypoint when it has no more maxima than the keypoint limit | bug, fixed in 0.9 | Use kornia 0.9 or newer; older results have one keypoint fewer on such images |
 
 ## Intel GPU compute runtime (PyTorch XPU)
 
@@ -141,7 +142,7 @@ float32; 2,666 of 2,666 with float16 attention and pruning). On driver
 matches in all four settings (3,969 in float32 or float16 without pruning,
 3,967 with pruning).
 
-## kornia 0.8.3
+## kornia 0.8.3 and 0.9.2
 
 ### 3. `LightGlue` fails on devices other than CPU, MPS and CUDA
 
@@ -151,8 +152,10 @@ device type up in `pruning_keypoint_thresholds = {"cpu": -1, "mps": -1,
 even with pruning disabled:
 
 ```python
-LightGlue("disk").pruning_min_kpts(torch.device("xpu"))   # KeyError: 'xpu'
+LightGlue("disk").pruning_min_kpts(torch.device("xpu"))  # KeyError: 'xpu'
 ```
+
+kornia 0.9.2 still has this bug.
 
 **Workaround:** `DiskLightGlue.match` runs kornia's layers in the order of its
 forward pass, with the same early stopping and pruning. On a GPU it uses
@@ -168,7 +171,9 @@ self-attention runs in float32, and cross-attention builds the full similarity
 matrix with `einsum` and applies two softmaxes. On the CPU, kornia's forward
 pass took 4.6–12 s per KITTI pair against 1.1–2.2 s for the same computation
 through `scaled_dot_product_attention`. On Intel GPUs with the old driver it also
-triggered bug 2.
+triggered bug 2. kornia 0.9 runs cross-attention through
+`scaled_dot_product_attention` on every device as well, but still only in
+float16 on CUDA.
 
 **What av1sfm does:** the same attention kernels on every device, float16 on
 any GPU. On the Lunar Lake GPU, float16 attention with pruning took 166 ms per
@@ -180,7 +185,17 @@ of 1,037 s, with practically the same matches and reconstruction.
 
 The constructor prints `Loaded LightGlue model`, so a script cannot write
 machine-readable output to stdout. `eval/run_lightglue.py` writes its
-statistics with `--stats FILE`.
+statistics with `--stats FILE`. kornia 0.9 no longer prints.
+
+### 14. DISK drops the weakest keypoint below the keypoint limit
+
+kornia 0.8.3's `heatmap_to_keypoints(heatmap, n)` keeps the scores strictly
+above the (n+1)-th largest, or above the smallest when an image has n maxima
+or fewer, so such an image loses its weakest keypoint. kornia 0.9 applies the
+limit only when there are more than n maxima. On KITTI 00 (117 frames,
+n = 5000), 106 images gained exactly that one keypoint and kept every other
+one; the sequential reconstruction went from 44,202 to 44,271 points
+(0.893 → 0.896 px, 117/117 registered), within run-to-run variation.
 
 ## COLMAP / pycolmap 4.2.1
 
